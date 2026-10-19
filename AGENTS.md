@@ -18,22 +18,29 @@
 
 ## Project
 
-zanevka newsbot is a Python application that processes incoming email news (`.eml`), extracts text, images and VK links/attachments, processes VK content through the VK API, and publishes the resulting content to WordPress.
+Zanevka Newsbot is one project with two components:
+
+- **Python Newsbot** — the root-level Python modules that process `.eml` news, documents, images and VK materials and publish to WordPress.
+- **WebUI** — the static HTML/CSS/JavaScript interface in `webui/`. It currently runs as a standalone mockup; it does **not** execute `main.py`, change live Python configuration, or read real bot logs.
+
+Future integration between these components is planned but its backend/API design has not been selected.
 
 Project context is maintained in `gpt_context/`:
 
-- `README.md` — short project overview.
-- `ARCHITECTURE.md` — module boundaries and architecture.
-- `CONTEXT.md` — current development context.
-- `DECISIONS.md` — durable architectural decisions.
+- root `README.md` — project overview.
+- `gpt_context/ARCHITECTURE.md` — module and component boundaries.
+- `gpt_context/CONTEXT.md` — current development context.
+- `gpt_context/DECISIONS.md` — durable architectural decisions.
+- `webui/README.md` — current UI structure and behavior.
+- `webui/AGENTS.md` — additional rules for work inside `webui/`.
 
 ## Source of truth
 
 For implementation details, use this priority:
 
 1. Current source code in the repository.
-2. `ARCHITECTURE.md` and `DECISIONS.md`.
-3. `CONTEXT.md`.
+2. `gpt_context/ARCHITECTURE.md` and `gpt_context/DECISIONS.md`.
+3. `gpt_context/CONTEXT.md` and the relevant component README.
 4. Current conversation.
 
 Do not assume that old chat context reflects the current code.
@@ -45,6 +52,8 @@ Before making a non-trivial change:
 3. Read `gpt_context/DECISIONS.md`.
 4. Inspect the actual affected source files.
 5. Search for usages of functions/interfaces being changed.
+6. For tasks involving `webui/`, also read `webui/AGENTS.md` and `webui/README.md` and inspect affected UI files.
+7. For integration tasks, inspect both the Python and WebUI sides before proposing interfaces or changing code.
 
 ## Development workflow
 
@@ -68,6 +77,9 @@ Review the diff for regressions, broken contracts, unnecessary complexity and du
 
 - Prefer small, targeted changes over unnecessary rewrites.
 - Preserve existing behavior unless the task explicitly requires changing it.
+- Keep Python processing logic and UI presentation logic separate. Avoid modifying the other component for an unrelated task.
+- Treat existing UI data, run simulations, schedule status and settings storage as **mock behavior**, not as evidence of a working backend.
+- Do not introduce an API, server framework, data contract or process-management mechanism without examining existing code and agreeing a concrete integration plan.
 - Do not silently change architecture or public contracts between modules.
 - Search for existing functionality before adding a helper or module.
 - Keep modules responsible for their own domain.
@@ -75,7 +87,7 @@ Review the diff for regressions, broken contracts, unnecessary complexity and du
 - Do not introduce new architectural patterns, base classes, factories, async code or abstraction layers unless they solve a concrete problem in the current task.
 - Do not hardcode credentials, tokens or other secrets.
 - Keep temporary files out of Git.
-- Update relevant `gpt_context/*.md` files when architecture, important behavior or durable decisions change.
+- Update relevant `gpt_context/*.md` files when architecture, important behavior or durable decisions change; update `webui/README.md` for substantial UI behavior changes.
 - Do not invent APIs, data structures or project behavior. Inspect the actual code first.
 - When uncertain, state the uncertainty rather than guessing.
 
