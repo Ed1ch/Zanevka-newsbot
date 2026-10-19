@@ -4,7 +4,7 @@
 
 ## Перед изменениями
 
-1. Прочитать `webui/README.md` и relevant sections of `gpt_context/ARCHITECTURE.md`, `gpt_context/CONTEXT.md` и `gpt_context/DECISIONS.md`.
+1. Прочитать `webui/README.md` и соответствующие разделы `gpt_context/ARCHITECTURE.md`, `gpt_context/CONTEXT.md` и `gpt_context/DECISIONS.md`.
 2. Найти затронутые HTML-элементы, CSS-правила и JavaScript-обработчики. Проверить связи и зависимости между ними.
 3. Если задача касается интеграции, сначала изучить затронутые Python-модули и предложить план; не придумывать несуществующие API и интерфейсы.
 

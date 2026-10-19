@@ -83,6 +83,7 @@ Review the diff for regressions, broken contracts, unnecessary complexity and du
 - Do not silently change architecture or public contracts between modules.
 - Search for existing functionality before adding a helper or module.
 - Keep modules responsible for their own domain.
+- Keep **all** Python Newsbot tests, diagnostic/probe scripts and their test fixtures under `probe/`, not in the repository root. Preserve production module boundaries; when moving test scripts, check imports and file paths.
 - Prefer simple, explicit Python over clever abstractions.
 - Do not introduce new architectural patterns, base classes, factories, async code or abstraction layers unless they solve a concrete problem in the current task.
 - Do not hardcode credentials, tokens or other secrets.
