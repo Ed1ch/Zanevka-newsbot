@@ -1,0 +1,132 @@
+/* Four Newsbot themes. Original is supplied unchanged by existing stylesheets. */
+/* Click the invisible button over the Zanevka Newsbot title to cycle themes. */
+.identity h1 { position: relative; }
+.identity h1 > .theme-easter-egg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(15ch - .525em); /* 15 monospace characters, with h1 letter spacing */
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  z-index: 1;
+}
+.identity h1 > .theme-easter-egg:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+/* Keep the running status clickable if the rendered title extends into its column. */
+.identity .status-controls { position: relative; z-index: 2; }
+
+/* The values below affect only the color scheme, not dimensions or layout. */
+:root[data-newsbot-theme="purple-edge"] {
+  --theme-body: radial-gradient(ellipse at 13% 3%, #37206480, transparent 54%),
+                linear-gradient(135deg, #241b4c, #140e37 60%, #1b143e);
+  --theme-app: linear-gradient(115deg, #1a1157e8, #160e54f5 65%, #110b4ff5);
+  --theme-header: linear-gradient(180deg, #c0a2ff15, #b098ff00 70%);
+  --theme-tab: #354164;
+  --theme-tab-hover: #4a527b;
+  --theme-menu: rgba(22, 12, 56, .76);
+  --theme-tooltip: #251a4a;
+  --theme-toast: #281c4bee;
+  /* Split-complement to indigo (~248deg): muted warm amber (~38deg). */
+  /* Background colors: 70% contrast, 90% brightness (no text filters). */
+  --theme-paper-bottom: #ab906e;
+  --paper: #b8a387;
+  --paper-light: #c0b098;
+  --paper-join: #beaa8f;
+}
+:root[data-newsbot-theme="deep-ocean"] {
+  --theme-body: radial-gradient(ellipse at 13% 3%, #22627480, transparent 54%),
+                linear-gradient(135deg, #10394b, #092734 60%, #0b3241);
+  --theme-app: linear-gradient(115deg, #0a3b52e8, #092e43f5 65%, #082537f5);
+  --theme-header: linear-gradient(180deg, #83e6e010, #83e6e000 70%);
+  --theme-tab: #245363;
+  --theme-tab-hover: #346e7c;
+  --theme-menu: rgba(3, 39, 49, .76);
+  --theme-tooltip: #134554;
+  --theme-toast: #134554ee;
+  /* Complement to blue-teal: warm peach, 70% contrast, 90% brightness. */
+  --theme-settings-bottom: #ae9585;
+  --theme-paper-bottom: #ae9585;
+  --paper: #b9a99e;
+  --paper-light: #c3bab2;
+  --paper-join: #bfb2aa;
+}
+:root[data-newsbot-theme="dark-amethyst"] {
+  --theme-body: radial-gradient(ellipse at 13% 3%, #57335480, transparent 54%),
+                linear-gradient(135deg, #322137, #1a162b 60%, #261930);
+  --theme-app: linear-gradient(115deg, #301b3ee8, #241631f5 65%, #1b152df5);
+  --theme-header: linear-gradient(180deg, #e6abd511, #e6abd500 70%);
+  --theme-tab: #4a3b57;
+  --theme-tab-hover: #675172;
+  --theme-menu: rgba(33, 17, 45, .77);
+  --theme-tooltip: #37253e;
+  --theme-toast: #37253eee;
+  /* Complement to amethyst violet: sage, 60% contrast, 90% brightness. */
+  --theme-paper-bottom: #939e86;
+  --paper: #a3ac97;
+  --paper-light: #b0b3a7;
+  --paper-join: #aeb2a3;
+}
+
+/* The Original theme has no overrides; it stays pixel-identical to the source. */
+:root[data-newsbot-theme]:not([data-newsbot-theme="original"]) body {
+  background: var(--theme-body);
+}
+:root[data-newsbot-theme]:not([data-newsbot-theme="original"]) .app {
+  background: var(--theme-app);
+}
+:root[data-newsbot-theme]:not([data-newsbot-theme="original"]) .app-header {
+  background: var(--theme-header);
+}
+:root[data-newsbot-theme]:not([data-newsbot-theme="original"]) .tab {
+  --tab-fill: var(--theme-tab);
+}
+:root[data-newsbot-theme]:not([data-newsbot-theme="original"]) .tab:hover {
+  --tab-fill: var(--theme-tab-hover);
+}
+:root[data-newsbot-theme]:not([data-newsbot-theme="original"]) .tab[aria-selected="true"] {
+  --tab-fill: var(--paper-join);
+}
+:root[data-newsbot-theme]:not([data-newsbot-theme="original"]) .settings-body {
+  background: linear-gradient(180deg, var(--paper-join), var(--paper) 60%, var(--theme-paper-bottom));
+}
+:root[data-newsbot-theme]:not([data-newsbot-theme="original"]) .log-filter-menu {
+  background: var(--theme-menu);
+}
+:root[data-newsbot-theme]:not([data-newsbot-theme="original"]) .tooltip {
+  background: var(--theme-tooltip);
+}
+:root[data-newsbot-theme]:not([data-newsbot-theme="original"]) .toast {
+  background: var(--theme-toast);
+}
+
+/* Native page-snapshot crossfade preserves gradients, text and floating settings. */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 380ms;
+    animation-timing-function: ease-in-out;
+  }
+}
+
+/* Fallback fade for browsers without View Transitions. */
+html.theme-fade-fallback::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  pointer-events: none;
+  background: #080b19;
+  opacity: 0;
+  transition: opacity 160ms ease-in-out;
+}
+html.theme-fade-fallback.theme-fade-dim::after { opacity: .58; }
+@media (prefers-reduced-motion: reduce) {
+  html.theme-fade-fallback::after { transition: none; }
+}

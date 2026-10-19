@@ -1,0 +1,138 @@
+/* Floating settings window. Sizes are visible CSS pixels, including the tabs. */
+:root {
+  --settings-window-width: 800px;
+  --settings-window-height: 600px;
+  --settings-window-min-width: 800px;
+  --settings-window-min-height: 600px;
+  --settings-window-margin: 16px;
+  --settings-window-drag-opacity: .65;
+}
+
+/* Both controls stay independent of the settings window and the log height. */
+.terminal { padding-bottom: 34px; }
+.log-bottom {
+  position: fixed;
+  z-index: 40;
+  right: 40px;
+  bottom: 5px;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+}
+/* Global toggle stays fixed independently of the settings window. */
+#toggle-panel { position: fixed; z-index: 40; top: calc(var(--settings-log-top, 0px) + 64px); }
+
+.settings {
+  position: fixed;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 34px;
+  pointer-events: none;
+}
+.settings > .tabs {
+  width: max-content;
+  max-width: 100%;
+  height: 34px;
+  margin: 0;
+  pointer-events: auto;
+}
+.settings:not(.is-open) .settings-drawer,
+.settings:not(.is-open) .settings-resize { display: none; }
+
+.settings.is-open {
+  z-index: 60;
+  left: var(--settings-left, 16px);
+  top: var(--settings-top, 16px);
+  right: auto;
+  bottom: auto;
+  width: var(--settings-width, calc(var(--settings-window-width) / var(--settings-page-scale, 1)));
+  height: var(--settings-height, calc(var(--settings-window-height) / var(--settings-page-scale, 1)));
+  min-width: calc(var(--settings-window-min-width) / var(--settings-page-scale, 1));
+  min-height: calc(var(--settings-window-min-height) / var(--settings-page-scale, 1));
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  border-radius: var(--tab-radius);
+  filter: drop-shadow(0 12px 20px #020d2366);
+}
+.settings.is-open > .tabs { flex: 0 0 34px; padding: 0 16px 0 0; }
+.settings.is-open .tab { flex: 0 0 auto; min-width: 112px; padding: 12px 18px; font-size: 13px; }
+.settings.is-open .tab svg { display: block; }
+.settings.is-open .tab[aria-selected="true"] { cursor: grab; touch-action: none; }
+.settings.is-open .settings-drawer {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  display: flex;
+  overflow: hidden;
+  border-radius: var(--tab-radius);
+  transition: none;
+}
+.settings.is-open .settings-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  container: settings-window / inline-size;
+}
+.settings.is-open .settings-toolbar { position: static; flex-wrap: wrap; padding: 12px 24px 10px; gap: 8px 16px; }
+.settings.is-open .settings-title { flex: 1 1 220px; }
+.settings.is-open .config-actions { position: static; flex-wrap: wrap; margin-left: auto; gap: 8px; }
+.settings.is-open .settings-scroll { padding: 0 24px 20px; }
+.settings.is-open .form-layout { grid-template-columns: 1fr 1fr; gap: 24px; }
+.settings.is-open .fields { gap: 10px 12px; }
+.settings.is-open .field-label { flex-wrap: wrap; gap: 0 7px; }
+.settings.is-open .panel-description { display: block; }
+.settings.is-dragging { opacity: var(--settings-window-drag-opacity); }
+
+/* Resizing changes the layout of the form, keeping the existing text size. */
+@container settings-window (max-width: 740px) {
+  .settings.is-open .form-layout { grid-template-columns: 1fr; gap: 22px; }
+}
+
+.settings-resize { position: absolute; z-index: 5; touch-action: none; }
+.settings-resize[data-resize="n"] { top: -4px; left: 10px; right: 10px; height: 8px; cursor: ns-resize; }
+.settings-resize[data-resize="s"] { bottom: -4px; left: 10px; right: 10px; height: 8px; cursor: ns-resize; }
+.settings-resize[data-resize="e"] { right: -4px; top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; }
+.settings-resize[data-resize="w"] { left: -4px; top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; }
+.settings-resize[data-resize="ne"],
+.settings-resize[data-resize="nw"],
+.settings-resize[data-resize="se"],
+.settings-resize[data-resize="sw"] { width: 14px; height: 14px; }
+.settings-resize[data-resize="ne"] { top: -4px; right: -4px; cursor: nesw-resize; }
+.settings-resize[data-resize="nw"] { top: -4px; left: -4px; cursor: nwse-resize; }
+.settings-resize[data-resize="se"] { bottom: -4px; right: -4px; cursor: nwse-resize; }
+.settings-resize[data-resize="sw"] { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.settings-resize[data-resize="se"]::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 6px;
+  height: 6px;
+  border-right: 1px solid #65736099;
+  border-bottom: 1px solid #65736099;
+}
+body.settings-interacting,
+body.settings-interacting * { user-select: none !important; cursor: var(--settings-cursor, grabbing) !important; }
+#close-settings svg {
+  width: 14px;
+  height: auto;
+}
+.settings.is-open .settings-drawer,
+.settings.is-open .settings-body {
+  border-top-left-radius: 0;
+}
+.settings-resize[data-resize="se"]::after {
+  display: none;
+}
+.settings:not(.is-open) > .tabs {
+  margin-left: auto;
+  margin-right: 150px;
+}
+/* Detached filter menu stays above log controls, below the open settings window. */
+.log-filter-menu { position: fixed; z-index: 50; }
+@media (max-width: 1050px) { .log-bottom { right: 28px; } }
+@media (max-width: 750px) { .log-bottom { right: 16px; } }

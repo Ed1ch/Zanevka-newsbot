@@ -1,0 +1,35 @@
+
+.settings {
+    position: relative;
+    z-index: 3;
+}
+
+
+.log-records {
+    margin-bottom: 0px;
+    padding-top: 25px;
+    padding-bottom: 55px;
+    mask-image: linear-gradient( to bottom, transparent 0px, black 15px, black calc(100% - 10px), transparent 100% );
+}
+/* Allow the last message to be manually scrolled to the top. */
+.log-scroll-tail {
+    pointer-events: none;
+}
+
+/* Shown only when manual scrolling has paused automatic log following. */
+.log-resume-scroll {
+    position: absolute;
+    z-index: 4;
+    right: 28px;
+    bottom: 75px;
+    padding: 7px 12px;
+    border: 1px solid #a1bad455;
+    border-radius: 999px;
+    background: #102d53e8;
+    color: #d4def5;
+    font: 12px var(--mono);
+}
+.log-resume-scroll:hover { background: #21436a; }
+@media (max-width: 750px) {
+    .log-resume-scroll { right: 16px; bottom: 60px; }
+}

@@ -1,0 +1,32 @@
+/* Zanevka Newsbot — оформление элементов управления журналом.
+   Подключать после остальных CSS-файлов. */
+
+:root {
+  --log-text-opacity: 0.80;        /* 0–1: прозрачность текста */
+  --log-icon-opacity: 0.70;        /* 0–1: прозрачность иконок */
+  --log-hover-color: #314c78;     /* цвет фона при наведении */
+  --log-hover-opacity: 0.35;      /* 0–1: прозрачность hover-фона */
+}
+
+/* Текст: сохраняем исходный цвет каждого элемента, меняем только альфа-канал. */
+.log-toolbar .log-filter-button-label,
+.log-toolbar .log-control > span,
+.log-bottom .log-control > span {
+  color: rgb(from currentColor r g b / var(--log-text-opacity));
+}
+
+/* Иконки: не затрагиваем текст и фон кнопок. */
+.log-toolbar img,
+#toggle-panel img,
+.log-bottom img {
+  opacity: var(--log-icon-opacity);
+}
+
+/* Hover: цвет и прозрачность фона настраиваются независимо.
+   Выпадающее меню фильтра и его пункты не затрагиваются. */
+.log-toolbar .log-filter-control:hover,
+.log-toolbar .log-control:hover,
+#toggle-panel:hover,
+.log-bottom .log-control:hover {
+  background-color: rgb(from var(--log-hover-color) r g b / var(--log-hover-opacity));
+}
