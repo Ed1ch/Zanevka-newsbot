@@ -231,7 +231,7 @@ class LoggingChecks(unittest.TestCase):
         self.assertIn("[3] Создание записи...", continued["details"])
         self.assertEqual(parsed[-1]["level"], "OK")
 
-    def test_embed_is_logged_as_literal_multiline_text(self):
+    def test_video_url_is_logged_without_embed_markup(self):
         self.prepare_pipeline((1,))
         self.docx_links.return_value = [{"document": "документ0.docx",
                                        "url": "https://vk.ru/wall-1_2"}]
@@ -239,7 +239,11 @@ class LoggingChecks(unittest.TestCase):
             return_value={"player": "https://example.invalid/player?a=1&b=2"}))
         main.main()
         text = self.text()
-        self.assertIn('\tEMBED: <iframe src="https://example.invalid/player?a=1&amp;b=2"', text)
+        self.assertIn('\tVIDEO URL: https://example.invalid/player?a=1&b=2\n', text)
+        self.assertNotIn('EMBED:', text)
+        self.assertNotIn('<iframe', text)
+        self.assertIn('src="https://example.invalid/player?a=1&amp;b=2"',
+                      self.posts.call_args.args[0]["vk_embed"])
         self.assertEqual(blocks(text)[-1]["level"], "OK")
 
     def test_mail_finalize_failure_is_fatal_and_does_not_claim_ok(self):

@@ -168,7 +168,7 @@ def process_vk(
             f'frameborder="0" '
             f'allowfullscreen></iframe>'
         )
-        log.detail(f"EMBED: {news['vk_embed']}")
+        log.detail(f"VIDEO URL: {player}")
 
     preview = vk_data.get("preview")
 
