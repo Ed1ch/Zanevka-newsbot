@@ -47,7 +47,7 @@ REAL_DOWNLOAD_WITH_RETRIES = mail.download_with_retries
 
 
 HEADER = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} "
-                    r"\[(INFO|OK|WARNING|ERROR)\] \[([A-Za-z_][A-Za-z0-9_.]*)\] (.*)$")
+                    r"\[(INFO|OK|WARNING|ERROR)\] (.*)$")
 
 
 def blocks(text):
@@ -57,8 +57,7 @@ def blocks(text):
             continue
         match = HEADER.fullmatch(line)
         if match:
-            result.append({"level": match[1], "module": match[2],
-                           "title": match[3], "details": []})
+            result.append({"level": match[1], "title": match[2], "details": []})
         else:
             if not result or not line.startswith("\t"):
                 raise AssertionError(f"Invalid block continuation: {line!r}")
@@ -285,12 +284,12 @@ class LoggingChecks(unittest.TestCase):
 
     def test_multiline_prefix_and_transport_roundtrip(self):
         log.setup()
-        log.block("ПРОВЕРКА INBOX", module="mail_downloader")
+        log.block("ПРОВЕРКА INBOX")
         path = log.activate()
-        log.detail("EMBED: <iframe>\n2026-10-21 00:00:00 [ERROR] [main] Это подробность")
+        log.detail("EMBED: <iframe>\n2026-10-21 00:00:00 [ERROR] Это подробность")
         # The file is readable before close(), proving per-message flush.
         text = path.read_text(encoding="utf-8")
-        self.assertEqual(len(blocks(text)), 1)
+        self.assertEqual([b["title"] for b in blocks(text)], ["ПРОВЕРКА INBOX"])
         self.assertIn("\t2026-10-21", text)
         self.assertEqual(json.loads(json.dumps(text, ensure_ascii=False)), text)
         raw = path.read_bytes()

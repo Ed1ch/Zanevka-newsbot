@@ -174,7 +174,7 @@ def search_unseen_news(mail):
             raw_headers = extract_raw_email(fetch_data)
         except RuntimeError:
             log.block(f"UID {uid}: Subject получить не удалось, письмо пропущено.",
-                      module="mail_downloader", level="WARNING")
+                      level="WARNING")
             continue
 
         subject = decode_subject(raw_headers)
@@ -209,8 +209,7 @@ def cleanup_part(temp_path):
     try:
         os.remove(temp_path)
     except OSError as error:
-        log.problem(f"Не удалось удалить временный файл {temp_path}", error,
-                    module="mail_downloader")
+        log.problem(f"Не удалось удалить временный файл {temp_path}", error)
 
 
 def cleanup_eml(path):
@@ -220,8 +219,7 @@ def cleanup_eml(path):
     try:
         os.remove(path)
     except OSError as error:
-        log.problem(f"Не удалось удалить локальный EML {path}", error,
-                    module="mail_downloader")
+        log.problem(f"Не удалось удалить локальный EML {path}", error)
 
 
 def download_by_uid(mail, uid):
@@ -359,7 +357,7 @@ def download_with_retries(uid):
     for attempt in range(1, IMAP_RETRY_COUNT + 1):
         mail = None
         if attempt > 1:
-            log.block(f"ПОВТОРНОЕ СКАЧИВАНИЕ UID {uid}", module="mail_downloader")
+            log.block(f"ПОВТОРНОЕ СКАЧИВАНИЕ UID {uid}")
         log.detail(
             f"Скачивание UID {uid}: "
             f"попытка {attempt}/{IMAP_RETRY_COUNT}..."
@@ -388,8 +386,7 @@ def download_with_retries(uid):
         ) as error:
             last_error = error
             log.problem(f"Ошибка скачивания UID {uid}: "
-                        f"попытка {attempt}/{IMAP_RETRY_COUNT}", error,
-                        module="mail_downloader")
+                        f"попытка {attempt}/{IMAP_RETRY_COUNT}", error)
 
         finally:
             close_mail(mail)
@@ -409,7 +406,7 @@ def download_with_retries(uid):
             uid,
         )
         log.block(f"Не удалось скачать письмо UID {uid}",
-                  module="mail_downloader", level="WARNING")
+                  level="WARNING")
         log.detail(
             f"UID {uid}: загрузка не удалась; "
             f"письмо оставлено в {IMAP_MAILBOX} как SEEN."
@@ -476,7 +473,7 @@ def download_news_email(stats=None):
     и возвращаемые значения сохранены.
     """
     while True:
-        log.block(f"ПРОВЕРКА INBOX {IMAP_USERNAME} ...", module="mail_downloader")
+        log.block(f"ПРОВЕРКА INBOX {IMAP_USERNAME} ...")
         found = find_oldest_unseen()
 
         if found is None:

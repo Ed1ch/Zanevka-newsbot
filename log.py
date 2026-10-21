@@ -50,7 +50,7 @@ class _BlockFormatter(logging.Formatter):
             result = "\n".join("\t" + line for line in lines)
         else:
             stamp = datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S")
-            result = f"{stamp} [{record.levelname}] [{record.source}] {lines[0]}"
+            result = f"{stamp} [{record.levelname}] {lines[0]}"
             result += "".join("\n\t" + line for line in lines[1:])
         if record.exc_info:
             result += "".join("\n\t" + line for line in
@@ -132,7 +132,7 @@ def _prune():
                 total -= stat.st_size
     except OSError as error:
         # Retention failure must not prevent processing or recursively open a file.
-        block("Не удалось очистить старые журналы", module="log", level="WARNING",
+        block("Не удалось очистить старые журналы", level="WARNING",
               exception=error, persist=False)
 
 
@@ -165,32 +165,30 @@ def current_path():
     return _file_path
 
 
-def _record(message, module, level, detail, exception=None):
+def _record(message, level, detail, exception=None):
     info = ((type(exception), exception, exception.__traceback__)
             if exception is not None else None)
     return _logger.makeRecord(_logger.name, _LEVELS[level], "", 0, str(message), (), info,
-                              extra={"source": module, "detail": detail})
+                              extra={"detail": detail})
 
 
-def block(title, *, module="main", level="INFO", exception=None, persist=True):
+def block(title, *, level="INFO", exception=None, persist=True):
     """Start a block. WARNING/ERROR are always standalone, parseable headers."""
     global _header
     _ensure_setup()
     if level not in _LEVELS:
         raise ValueError(f"Неизвестный уровень журнала: {level}")
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", module):
-        raise ValueError(f"Некорректное имя модуля: {module}")
     if persist and level in ("WARNING", "ERROR") and _file_handler is None and not _archive_broken:
         try:
             activate()
         except OSError as error:
             # Fatal startup/file errors still reach the console. The pipeline's
             # explicit activate() call remains fail-fast before any download.
-            record = _record(f"Журнал недоступен: {error}", "log", "ERROR", False)
+            record = _record(f"Журнал недоступен: {error}", "ERROR", False)
             _logger.handle(record)
-    record = _record(title, module, level, False, exception)
+    record = _record(title, level, False, exception)
     if _header is not None:
-        _logger.handle(_record("", _header.source, _header.levelname, True))
+        _logger.handle(_record("", _header.levelname, True))
     _header = record
     _logger.handle(record)
 
@@ -200,11 +198,11 @@ def detail(message):
     _ensure_setup()
     if _header is None:
         block("Ход выполнения")
-    _logger.handle(_record(message, _header.source, _header.levelname, True))
+    _logger.handle(_record(message, _header.levelname, True))
 
 
-def problem(message, error, *, module="main", level="WARNING"):
-    block(message, module=module, level=level, exception=error)
+def problem(message, error, *, level="WARNING"):
+    block(message, level=level, exception=error)
 
 
 def close():
