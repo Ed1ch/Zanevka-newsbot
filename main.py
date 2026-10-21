@@ -2,10 +2,12 @@ import html
 import mimetypes
 import os
 import requests
+import log
 
 from config import (
     OUTPUT_DIR,
     IMAP_OUTPUT_DIR,
+    WP_URL,
 )
 
 from mail_downloader import (
@@ -151,8 +153,6 @@ def process_vk(
 
     url = vk_info["url"]
 
-    print(f"VK URL: {url}")
-
     vk_data = get_vk_video_from_post(url)
 
     news["vk_data"] = vk_data
@@ -168,6 +168,7 @@ def process_vk(
             f'frameborder="0" '
             f'allowfullscreen></iframe>'
         )
+        log.detail(f"EMBED: {news['vk_embed']}")
 
     preview = vk_data.get("preview")
 
@@ -182,7 +183,7 @@ def process_vk(
     if not use_preview:
         return
 
-    print("Загрузка VK preview...")
+    log.detail("Загрузка VK preview...")
 
     preview_data, mime_type, extension = (
         download_vk_preview(preview)
@@ -262,12 +263,12 @@ def cleanup_working_files(eml_path):
         try:
             if os.path.isfile(eml_path):
                 os.remove(eml_path)
-                print(
+                log.detail(
                     f"Удалён локальный EML: {eml_path}"
                 )
         except OSError as error:
-            print(
-                f"Не удалось удалить {eml_path}: {error}"
+            log.problem(
+                f"Не удалось удалить {eml_path}", error,
             )
 
     if os.path.isdir(OUTPUT_DIR):
@@ -283,8 +284,8 @@ def cleanup_working_files(eml_path):
                 if os.path.isfile(path):
                     os.remove(path)
             except OSError as error:
-                print(
-                    f"Не удалось удалить {path}: {error}"
+                log.problem(
+                    f"Не удалось удалить {path}", error,
                 )
 
 
@@ -310,8 +311,8 @@ def cleanup_downloaded_eml():
             if os.path.isfile(path):
                 os.remove(path)
         except OSError as error:
-            print(
-                f"Не удалось удалить {path}: {error}"
+            log.problem(
+                f"Не удалось удалить {path}", error,
             )
 
 
@@ -320,11 +321,7 @@ def print_image_matching_report(documents, images):
     Показывает привязку картинок до публикации.
     Отчёт информационный и не влияет на обработку новостей.
     """
-    print()
-    print("=" * 80)
-    print("ПРОВЕРКА СОПОСТАВЛЕНИЯ DOCX И ИЗОБРАЖЕНИЙ")
-    print("=" * 80)
-
+    matches = []
     matched_by_image = {
         image["filename"]: []
         for image in images
@@ -337,16 +334,9 @@ def print_image_matching_report(documents, images):
             images
         )
 
-        print()
-        print(f"DOCX: {doc_filename}")
-
-        if not matched_images:
-            print("  Картинки: НЕ НАЙДЕНЫ")
-            continue
-
+        matches.append((doc_filename, [image["filename"] for image in matched_images]))
         for image in matched_images:
             image_filename = image["filename"]
-            print(f"  ✓ {image_filename}")
             matched_by_image[image_filename].append(
                 doc_filename
             )
@@ -363,376 +353,157 @@ def print_image_matching_report(documents, images):
         if len(matched_docs) > 1
     }
 
-    print()
-    if unmatched_images:
-        print("Непривязанные картинки:")
-        for filename in unmatched_images:
-            print(f"  ! {filename}")
-    else:
-        print("Непривязанных картинок нет.")
-
-    if ambiguous_images:
-        print("ВНИМАНИЕ: неоднозначные сопоставления:")
-        for filename, matched_docs in ambiguous_images.items():
-            print(f"  ! {filename}")
-            for doc_filename in matched_docs:
-                print(f"      -> {doc_filename}")
-    else:
-        print("Неоднозначных сопоставлений нет.")
+    log.matching_report(matches, unmatched_images, ambiguous_images)
 
 
 
 def process_email(eml_path):
-    """
-    Запускает существующий конвейер для одного EML.
-
-    Возвращает True, только если все критические этапы всех новостей
-    завершились успешно. Ошибка VK является некритичной.
-    """
-    print(f"EML: {eml_path}")
-
-    email_data = extract_attachments(
-        eml_path
-    )
-
+    """Обрабатывает одно EML; ошибка отдельной новости не прерывает цикл."""
+    email_data = extract_attachments(eml_path)
     documents = email_data["documents"]
     images = email_data["images"]
+    log.attachments_found(len(documents), len(images))
 
-    print(
-        f"DOCX найдено: {len(documents)}"
-    )
+    print_image_matching_report(documents, images)
+    news_list = build_news(documents, images)
+    log.detail(f"Новостей собрано: {len(news_list)}")
 
-    print(
-        f"Изображений найдено: {len(images)}"
-    )
-
-    print_image_matching_report(
-        documents,
-        images
-    )
-
-    news_list = build_news(
-        documents,
-        images
-    )
-
-    print(
-        f"Новостей собрано: {len(news_list)}"
-    )
-
-    vk_links = extract_vk_links(
-        email_data,
-        documents
-    )
-
-    vk_by_document = {
-        item["document"]: item
-        for item in vk_links
-    }
-
-    vk_links_from_docx = (
-        extract_vk_links_from_docx(
-            documents
-        )
-    )
-
-    vk_by_document_from_docx = {
-        item["document"]: item
-        for item in vk_links_from_docx
-    }
-
-    print()
-    print("=" * 80)
-    print("VK ССЫЛКИ ИЗ ПИСЬМА")
-    print("=" * 80)
-
-    if vk_links:
-        for item in vk_links:
-            print()
-            print(
-                f'DOCX: {item["document"]}'
-            )
-            print(
-                f'URL:  {item["url"]}'
-            )
-            print(
-                f'Источник: {item["source"]}'
-            )
-    else:
-        print(
-            "VK ссылок, привязанных к DOCX "
-            "в письме, не найдено."
-        )
-
-    print()
-    print("=" * 80)
-    print("VK ССЫЛКИ ИЗ DOCX")
-    print("=" * 80)
-
-    if vk_links_from_docx:
-        for item in vk_links_from_docx:
-            print()
-            print(
-                f'DOCX: {item["document"]}'
-            )
-            print(
-                f'URL:  {item["url"]}'
-            )
-            print(
-                f'Источник: {item["source"]}'
-            )
-    else:
-        print(
-            "VK wall-ссылок непосредственно "
-            "в DOCX не найдено."
-        )
+    vk_links = extract_vk_links(email_data, documents)
+    vk_by_document = {item["document"]: item for item in vk_links}
+    vk_links_from_docx = extract_vk_links_from_docx(documents)
+    vk_by_document_from_docx = {item["document"]: item for item in vk_links_from_docx}
+    log.vk_links_report(vk_links, vk_links_from_docx)
+    log.block(f"ПУБЛИКАЦИЯ на {WP_URL} ...")
 
     email_ok = True
-
-    for number, news in enumerate(
-        news_list,
-        start=1
-    ):
-        print()
-        print("=" * 80)
-        print(
-            f"NEWS #{number}: "
-            f"{news['title']}"
-        )
-        print("=" * 80)
-
+    for number, news in enumerate(news_list, start=1):
+        log.news_started(number, news["title"])
         try:
-            print(
-                "\n[1] Обработка изображений..."
-            )
-
+            log.detail("[1] Загрузка изображений...")
             process_images(news)
 
-            print(
-                "\n[2] Поиск VK..."
-            )
-
-            document_filename = (
-                news["document_filename"]
-            )
-
-            vk_info = (
-                vk_by_document_from_docx.get(
-                    document_filename
-                )
-            )
-
+            document_filename = news["document_filename"]
+            vk_info = vk_by_document_from_docx.get(document_filename)
             force_preview_as_featured = False
-
             if vk_info:
-                print(
-                    f"Найдена VK-ссылка "
-                    f"внутри DOCX: "
-                    f"{document_filename}"
-                )
-                print(
-                    f'URL: {vk_info["url"]}'
-                )
+                log.detail("[2] Поиск VK... найдена VK-ссылка внутри DOCX: "
+                           f"{document_filename}")
+                log.detail(f"URL: {vk_info['url']}")
                 force_preview_as_featured = True
-
             else:
-                vk_info = vk_by_document.get(
-                    document_filename
-                )
-
+                vk_info = vk_by_document.get(document_filename)
                 if vk_info:
-                    print(
-                        f"Найдена VK-ссылка "
-                        f"в письме для "
-                        f"{document_filename}"
-                    )
+                    log.detail("[2] Поиск VK... найдена VK-ссылка в письме для "
+                               f"{document_filename}")
+                    log.detail(f"URL: {vk_info['url']}")
                 else:
-                    print(
-                        "VK-ссылка для этой новости "
-                        "не найдена."
-                    )
+                    log.detail("[2] Поиск VK... VK-ссылка для этой новости не найдена.")
 
             if vk_info:
                 try:
-                    process_vk(
-                        news,
-                        vk_info,
-                        force_preview_as_featured
-                    )
+                    process_vk(news, vk_info, force_preview_as_featured)
+                except log.LogWriteError:
+                    raise
                 except Exception as error:
-                    print(
-                        "\nПРЕДУПРЕЖДЕНИЕ VK:"
-                    )
-                    print(error)
-                    print(
-                        "Новость будет опубликована "
-                        "без VK-видео/preview."
-                    )
+                    log.problem("ПРЕДУПРЕЖДЕНИЕ VK", error)
+                    log.detail("Новость будет опубликована без VK-видео/preview.")
+                    # Resume with a new INFO header so the continuation does not
+                    # accidentally inherit WARNING in the future API reader.
+                    log.news_started(number, news["title"], continued=True)
 
-            print(
-                "\n[3] Создание записи..."
-            )
-
+            log.detail("[3] Создание записи...")
             post = create_post(news)
-
-            print(
-                "\nГотово:"
-            )
-            print(
-                f"ID: {post['id']}"
-            )
-            print(
-                f"URL: {post.get('link')}"
-            )
-            print(
-                f"Статус: {post.get('status')}"
-            )
-
+            log.post_result(post["id"], post.get("link"), post.get("status"))
+        except log.LogWriteError:
+            raise
         except Exception as error:
             email_ok = False
-
-            print(
-                "\nОШИБКА:"
-            )
-            print(error)
-            print(
-                "Новость не обработана полностью. "
-                "Переходим к следующей новости письма."
-            )
+            log.problem(f"Новость #{number} не обработана полностью", error)
+            log.detail("Переходим к следующей новости письма.")
 
     return email_ok
 
 
 def run_pipeline():
-    print("=" * 80)
-    print("MAIL → EML → WORDPRESS")
-    print("=" * 80)
-
     processed_emails = 0
     failed_emails = 0
+    mail_stats = {"failed_downloads": 0}
 
     while True:
-        print()
-        print("=" * 80)
-        print("ПОИСК СЛЕДУЮЩЕГО ПИСЬМА")
-        print("=" * 80)
-
-        downloaded = download_news_email()
-
+        downloaded = download_news_email(stats=mail_stats)
         if downloaded is None:
-            print(
-                "Непрочитанных ЗГП-писем "
-                "для обработки больше нет."
-            )
+            log.detail("Непрочитанных ЗГП-писем для обработки больше нет.")
             break
 
         uid, eml_path, subject = downloaded
-
-        print()
-        print("=" * 80)
-        print(
-            f"ОБРАБОТКА ПИСЬМА UID {uid}"
-        )
-        print("=" * 80)
-        print(
-            f"Subject: {subject}"
-        )
-        print(
-            "Состояние IMAP: SEEN. "
-            "Повторно автоматически письмо не подхватится."
-        )
-
+        log.email_started(uid, subject, eml_path)
         email_ok = False
-
         try:
-            email_ok = process_email(
-                eml_path
-            )
-
-        except Exception as error:
-            print()
-            print(
-                "КРИТИЧЕСКАЯ ОШИБКА ОБРАБОТКИ ПИСЬМА:"
-            )
-            print(error)
-            email_ok = False
-
-        finally:
-            cleanup_working_files(
-                eml_path
-            )
-
-        try:
-            if email_ok:
-                mark_email_processed(
-                    uid
-                )
-                processed_emails += 1
-            else:
-                mark_email_failed(
-                    uid
-                )
-                failed_emails += 1
-
-        except Exception as error:
-            print()
-            print(
-                "КРИТИЧЕСКАЯ ОШИБКА IMAP:"
-            )
-            print(error)
-            print(
-                "Не удалось надёжно завершить изменение "
-                "состояния письма. Работа остановлена."
-            )
+            email_ok = process_email(eml_path)
+        except log.LogWriteError:
             raise
+        except Exception as error:
+            log.problem(f"Не удалось обработать письмо UID {uid}", error)
+            email_ok = False
+        finally:
+            log.block(f"ЗАВЕРШЕНИЕ ОБРАБОТКИ ПИСЬМА UID {uid}")
+            cleanup_working_files(eml_path)
 
-    print()
-    print("=" * 80)
-    print("ГОТОВО")
-    print("=" * 80)
-    print(
-        f"Успешно обработано писем: "
-        f"{processed_emails}"
-    )
-    print(
-        f"Оставлено в INBOX как SEEN "
-        f"после ошибок: {failed_emails}"
-    )
+        # Failures here propagate to main(): continuing would leave the mailbox
+        # state uncertain. The final ERROR is emitted once, with its traceback.
+        if email_ok:
+            mark_email_processed(uid)
+            processed_emails += 1
+        else:
+            mark_email_failed(uid)
+            failed_emails += 1
+
+    return processed_emails, failed_emails, mail_stats["failed_downloads"]
 
 
 def main():
     lock_file = acquire_process_lock()
-
     if lock_file is None:
-        print("=" * 80)
-        print("MAIL → EML → WORDPRESS")
-        print("=" * 80)
-        print()
-        print(
-            "Другой экземпляр main.py уже работает. "
-            "Этот запуск завершён без обработки писем."
-        )
+        # A duplicate run is intentionally silent and does not touch the journal.
         return
 
+    logging_ready = False
     try:
-        print(
-            f"Process lock получен: {LOCK_FILE}"
-        )
-        run_pipeline()
+        log.setup()
+        logging_ready = True
+        log.block("Process lock получен")
+        log.detail("Workflow: CHECK INBOX → PROCESS EML → DOC+IMG MATCHING → "
+                   "VK PARSE → WORDPRESS PUBLISHING")
+        try:
+            summary = run_pipeline()
+        finally:
+            # Both cleanups are attempted even if the first one raises.
+            try:
+                cleanup_working_files(None)
+            finally:
+                cleanup_downloaded_eml()
 
+        processed, failed, downloads_failed = summary
+        if processed or failed or downloads_failed:
+            level = "WARNING" if failed or downloads_failed else "OK"
+            log.run_finished(level, processed, failed, downloads_failed)
+        elif log.current_path() is not None:
+            log.run_finished("WARNING", 0, 0)
+        else:
+            log.block("Проверка завершена. Новых писем нет.")
+    except KeyboardInterrupt as error:
+        if logging_ready:
+            log.problem("Запуск прерван пользователем", error)
+        raise
+    except Exception as error:
+        if logging_ready:
+            log.problem("Работа остановлена из-за ошибки", error, level="ERROR")
+        raise
     finally:
-        # Финальная страховочная очистка рабочих файлов.
-        # cleanup_working_files(None) сохраняет существующую логику
-        # очистки extracted_images.
-        cleanup_working_files(
-            None
-        )
-
-        cleanup_downloaded_eml()
-
-        release_process_lock(
-            lock_file
-        )
+        try:
+            log.close()
+        finally:
+            release_process_lock(lock_file)
 
 
 if __name__ == "__main__":

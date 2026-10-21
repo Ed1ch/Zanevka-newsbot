@@ -3,6 +3,7 @@ import imaplib
 import os
 import socket
 import time
+import log
 from email import message_from_bytes
 from email.header import decode_header, make_header
 
@@ -172,10 +173,8 @@ def search_unseen_news(mail):
         try:
             raw_headers = extract_raw_email(fetch_data)
         except RuntimeError:
-            print(
-                f"UID {uid}: Subject получить не удалось, "
-                "письмо пропущено."
-            )
+            log.block(f"UID {uid}: Subject получить не удалось, письмо пропущено.",
+                      module="mail_downloader", level="WARNING")
             continue
 
         subject = decode_subject(raw_headers)
@@ -210,10 +209,8 @@ def cleanup_part(temp_path):
     try:
         os.remove(temp_path)
     except OSError as error:
-        print(
-            f"Не удалось удалить временный файл "
-            f"{temp_path}: {error}"
-        )
+        log.problem(f"Не удалось удалить временный файл {temp_path}", error,
+                    module="mail_downloader")
 
 
 def cleanup_eml(path):
@@ -223,10 +220,8 @@ def cleanup_eml(path):
     try:
         os.remove(path)
     except OSError as error:
-        print(
-            f"Не удалось удалить локальный EML "
-            f"{path}: {error}"
-        )
+        log.problem(f"Не удалось удалить локальный EML {path}", error,
+                    module="mail_downloader")
 
 
 def download_by_uid(mail, uid):
@@ -363,8 +358,9 @@ def download_with_retries(uid):
 
     for attempt in range(1, IMAP_RETRY_COUNT + 1):
         mail = None
-
-        print(
+        if attempt > 1:
+            log.block(f"ПОВТОРНОЕ СКАЧИВАНИЕ UID {uid}", module="mail_downloader")
+        log.detail(
             f"Скачивание UID {uid}: "
             f"попытка {attempt}/{IMAP_RETRY_COUNT}..."
         )
@@ -375,11 +371,13 @@ def download_with_retries(uid):
                 mail,
                 uid,
             )
-            print(
+            log.detail(
                 f"Письмо скачано: {output_path}"
             )
             return output_path
 
+        except log.LogWriteError:
+            raise
         except (
             TimeoutError,
             socket.timeout,
@@ -389,16 +387,15 @@ def download_with_retries(uid):
             RuntimeError,
         ) as error:
             last_error = error
-            print(
-                f"Ошибка скачивания "
-                f"{attempt}/{IMAP_RETRY_COUNT}: {error}"
-            )
+            log.problem(f"Ошибка скачивания UID {uid}: "
+                        f"попытка {attempt}/{IMAP_RETRY_COUNT}", error,
+                        module="mail_downloader")
 
         finally:
             close_mail(mail)
 
         if attempt < IMAP_RETRY_COUNT:
-            print(
+            log.detail(
                 f"Повтор через {IMAP_RETRY_DELAY} сек."
             )
             time.sleep(IMAP_RETRY_DELAY)
@@ -411,7 +408,9 @@ def download_with_retries(uid):
             mail,
             uid,
         )
-        print(
+        log.block(f"Не удалось скачать письмо UID {uid}",
+                  module="mail_downloader", level="WARNING")
+        log.detail(
             f"UID {uid}: загрузка не удалась; "
             f"письмо оставлено в {IMAP_MAILBOX} как SEEN."
         )
@@ -419,7 +418,7 @@ def download_with_retries(uid):
         close_mail(mail)
 
     if last_error is not None:
-        print(
+        log.detail(
             f"Последняя ошибка: "
             f"{type(last_error).__name__}: {last_error}"
         )
@@ -442,7 +441,7 @@ def reserve_downloaded_email(uid, output_path):
             mail,
             uid,
         )
-        print(
+        log.detail(
             f"UID {uid}: помечено SEEN до запуска публикации."
         )
 
@@ -456,7 +455,7 @@ def reserve_downloaded_email(uid, output_path):
         close_mail(mail)
 
 
-def download_news_email():
+def download_news_email(stats=None):
     """
     Находит и скачивает самое старое UNSEEN-письмо с IMAP_SUBJECT.
 
@@ -471,8 +470,13 @@ def download_news_email():
         (uid, eml_path, subject)
     либо:
         None
+
+    Необязательный stats — словарь вызывающего конвейера. В нём суммируется
+    failed_downloads после исчерпания retry; прежний вызов без аргументов
+    и возвращаемые значения сохранены.
     """
     while True:
+        log.block(f"ПРОВЕРКА INBOX {IMAP_HOST} ...", module="mail_downloader")
         found = find_oldest_unseen()
 
         if found is None:
@@ -480,7 +484,8 @@ def download_news_email():
 
         uid, subject = found
 
-        print(
+        log.activate()
+        log.detail(
             f"Найдено письмо UID {uid}: {subject}"
         )
 
@@ -500,7 +505,9 @@ def download_news_email():
                 subject,
             )
 
-        print(
+        if stats is not None:
+            stats["failed_downloads"] = stats.get("failed_downloads", 0) + 1
+        log.detail(
             "Переходим к следующему "
             "непрочитанному письму."
         )
@@ -521,7 +528,7 @@ def mark_email_failed(uid):
             mail,
             uid,
         )
-        print(
+        log.detail(
             f"UID {uid}: оставлено в "
             f"{IMAP_MAILBOX} как SEEN."
         )
@@ -545,9 +552,7 @@ def mark_email_processed(uid):
             mail,
             uid,
         )
-        print(
-            f"UID {uid}: перемещено в корзину "
-            f"{IMAP_TRASH}."
-        )
+        log.detail(f"UID {uid}: перемещено в корзину почтового ящика.")
     finally:
         close_mail(mail)
+

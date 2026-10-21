@@ -44,6 +44,8 @@ env/
 # =========================
 
 *.log
+/logs/
 /stable_backup/
 *.lock
+
 
