@@ -476,7 +476,7 @@ def download_news_email(stats=None):
     и возвращаемые значения сохранены.
     """
     while True:
-        log.block(f"ПРОВЕРКА INBOX {IMAP_HOST} ...", module="mail_downloader")
+        log.block(f"ПРОВЕРКА INBOX {IMAP_USERNAME} ...", module="mail_downloader")
         found = find_oldest_unseen()
 
         if found is None:
