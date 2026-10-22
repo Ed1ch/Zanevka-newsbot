@@ -42,6 +42,7 @@ requests.get = requests.post = forbidden_http
 import log
 import mail_downloader as mail
 import main
+import prelaunch
 
 REAL_DOWNLOAD_WITH_RETRIES = mail.download_with_retries
 
@@ -81,8 +82,9 @@ class LoggingChecks(unittest.TestCase):
         self.stack.enter_context(patch.object(config, "LOG_MAX_TOTAL_MB", 200))
         self.stack.enter_context(patch.object(main, "OUTPUT_DIR", str(self.root / "images")))
         self.stack.enter_context(patch.object(main, "IMAP_OUTPUT_DIR", str(self.root / "eml")))
-        self.stack.enter_context(patch.object(main, "LOCK_FILE", str(self.root / "main.lock")))
+        self.stack.enter_context(patch.object(prelaunch, "LOCK_FILE", str(self.root / "main.lock")))
         self.stack.enter_context(patch.object(mail, "IMAP_RETRY_DELAY", 0))
+        self.stack.enter_context(patch.object(prelaunch, "DELAYED_PUBLISH_FILE", self.root / "delayed.publish"))
         self.connection = MagicMock()
         self.connection.uid.side_effect = lambda *args: (
             ("OK", [b"25 (FLAGS (\\Seen))"]) if args[0] == "fetch" else ("OK", [])
@@ -99,8 +101,8 @@ class LoggingChecks(unittest.TestCase):
         return text
 
     def prepare_pipeline(self, counts=(2,), post_side_effect=None):
-        found = [(str(25 + i), "ЗГП") for i in range(len(counts))] + [None]
-        self.stack.enter_context(patch.object(mail, "find_oldest_unseen", side_effect=found))
+        found = [(str(25 + i), "ЗГП") for i in range(len(counts))]
+        self.stack.enter_context(patch.object(mail, "search_unseen_news", return_value=found))
 
         def download(uid):
             # This assertion is at the actual download boundary, not after main
@@ -116,13 +118,19 @@ class LoggingChecks(unittest.TestCase):
 
         self.download = self.stack.enter_context(
             patch.object(mail, "download_with_retries", side_effect=download))
-        batches = [[{"title": f"Новость {i + 1}", "document_filename": f"документ{i}.docx",
-                     "content": "Текст", "excerpt": "Текст"} for i in range(count)]
-                   for count in counts]
+        batches = []
+        offset = 0
+        for count in counts:
+            batches.append([{"title": f"Новость {i + 1}", "document_filename": f"документ{i}.docx",
+                             "content": "Текст", "excerpt": "Текст", "featured_image": "fixture.jpg"}
+                            for i in range(offset, offset + count)])
+            offset += count
         payloads = [{"documents": [{"filename": item["document_filename"]} for item in batch],
-                     "images": []} for batch in batches]
+                     "images": [{"filename": item["document_filename"].replace(".docx", ".jpg")}
+                                for item in batch]} for batch in batches]
         self.stack.enter_context(patch.object(main, "extract_attachments", side_effect=payloads))
-        self.stack.enter_context(patch.object(main, "build_news", side_effect=batches))
+        self.stack.enter_context(patch.object(main, "build_news", return_value=[n for b in batches for n in b]))
+        self.stack.enter_context(patch.object(main, "process_images"))
         self.stack.enter_context(patch.object(main, "extract_vk_links", return_value=[]))
         self.docx_links = self.stack.enter_context(
             patch.object(main, "extract_vk_links_from_docx", return_value=[]))
@@ -133,21 +141,21 @@ class LoggingChecks(unittest.TestCase):
         return batches
 
     def test_empty_check_has_no_file_directory_or_ok_summary(self):
-        self.stack.enter_context(patch.object(mail, "find_oldest_unseen", return_value=None))
-        main.main()
+        self.stack.enter_context(patch.object(mail, "search_unseen_news", return_value=[]))
+        prelaunch.main()
         self.assertFalse(self.logs.exists())
         self.assertNotIn("[OK]", self.console.getvalue())
         self.assertIn("Новых писем нет", self.console.getvalue())
 
     def test_multiple_emails_share_one_live_utf8_file(self):
         self.prepare_pipeline((2, 3))
-        main.main()
+        prelaunch.main()
         text = self.text()
         self.assertEqual(self.posts.call_count, 5)
         self.assertEqual(text.count("[OK]"), 1)
         self.assertIn("Успешно обработано писем: 2", text)
         self.assertIn("как SEEN после ошибок: 0", text)
-        self.assertEqual(sum("ПУБЛИКАЦИЯ" in b["title"] for b in blocks(text)), 2)
+        self.assertEqual(sum("ПУБЛИКАЦИЯ" in b["title"] for b in blocks(text)), 1)
         self.assertFalse(list((self.root / "eml").iterdir()))
         self.assertIsNone(log._file_handler)
         self.assertFalse(log._logger.handlers)
@@ -157,7 +165,7 @@ class LoggingChecks(unittest.TestCase):
     def test_item_failure_continues_and_produces_warning_summary(self):
         self.prepare_pipeline((2,), [RuntimeError("WP fixture failure"),
                                    {"id": 2, "link": "https://example.invalid/2", "status": "draft"}])
-        main.main()
+        prelaunch.main()
         text = self.text()
         self.assertEqual(self.posts.call_count, 2)
         self.assertIn("Переходим к следующей новости", text)
@@ -168,53 +176,53 @@ class LoggingChecks(unittest.TestCase):
         self.assertFalse(list((self.root / "eml").iterdir()))
 
     def test_fatal_mail_error_is_saved_before_any_matching_email(self):
-        self.stack.enter_context(patch.object(mail, "find_oldest_unseen",
+        self.stack.enter_context(patch.object(mail, "search_unseen_news",
                                              side_effect=OSError("IMAP unavailable")))
         with self.assertRaisesRegex(OSError, "IMAP unavailable"):
-            main.main()
+            prelaunch.main()
         text = self.text()
         self.assertEqual(text.count("[ERROR]"), 1)
         self.assertNotIn("[OK]", text)
         self.assertIn("OSError: IMAP unavailable", text)
-        lock = main.acquire_process_lock()
+        lock = prelaunch.acquire_process_lock()
         self.assertIsNotNone(lock)
-        main.release_process_lock(lock)
+        prelaunch.release_process_lock(lock)
 
     def test_duplicate_run_is_silent(self):
-        first_lock = main.acquire_process_lock()
+        first_lock = prelaunch.acquire_process_lock()
         try:
-            main.main()
+            prelaunch.main()
             self.assertEqual(self.console.getvalue(), "")
             self.assertFalse(self.logs.exists())
         finally:
-            main.release_process_lock(first_lock)
+            prelaunch.release_process_lock(first_lock)
 
     def test_exhausted_download_is_counted_without_any_publication(self):
-        self.stack.enter_context(patch.object(mail, "find_oldest_unseen",
-                                             side_effect=[("25", "ЗГП"), None]))
+        self.stack.enter_context(patch.object(mail, "search_unseen_news",
+                                             return_value=[("25", "ЗГП")]))
         self.stack.enter_context(patch.object(mail, "download_by_uid",
                                              side_effect=OSError("download fixture failure")))
         self.stack.enter_context(patch.object(mail.time, "sleep"))
         posts = self.stack.enter_context(patch.object(main, "create_post"))
-        main.main()
+        with self.assertRaisesRegex(RuntimeError, "не удалось скачать"):
+            prelaunch.main()
         text = self.text()
         posts.assert_not_called()
-        self.assertEqual(blocks(text)[-1]["level"], "WARNING")
-        self.assertIn("Из них не удалось скачать: 1", text)
-        self.assertIn("как SEEN после ошибок: 1", text)
+        self.assertEqual(blocks(text)[-1]["level"], "ERROR")
+        self.assertIn("Партия остановлена", text)
+        self.assertFalse(prelaunch.DELAYED_PUBLISH_FILE.exists())
         self.assertNotIn("[OK]", text)
 
-    def test_failed_download_before_successful_email_affects_summary(self):
+    def test_failed_download_stops_before_next_email(self):
         self.prepare_pipeline((1,))
-        self.stack.enter_context(patch.object(mail, "find_oldest_unseen",
-                                             side_effect=[("24", "ЗГП"), ("25", "ЗГП"), None]))
-        successful_download = self.download.side_effect
-        self.download.side_effect = lambda uid: None if uid == "24" else successful_download(uid)
-        main.main()
-        text = self.text()
-        self.assertEqual(blocks(text)[-1]["level"], "WARNING")
-        self.assertIn("Успешно обработано писем: 1", text)
-        self.assertIn("Из них не удалось скачать: 1", text)
+        self.stack.enter_context(patch.object(mail, "search_unseen_news",
+                                             return_value=[("24", "ЗГП"), ("25", "ЗГП")]))
+        self.download.side_effect = lambda uid: None
+        with self.assertRaisesRegex(RuntimeError, "не удалось скачать"):
+            prelaunch.main()
+        self.download.assert_called_once_with("24")
+        self.posts.assert_not_called()
+        self.assertEqual(blocks(self.text())[-1]["level"], "ERROR")
 
     def test_vk_failure_resumes_info_and_still_creates_post(self):
         self.prepare_pipeline((1,))
@@ -222,7 +230,7 @@ class LoggingChecks(unittest.TestCase):
                                        "url": "https://vk.ru/wall-1_2"}]
         self.stack.enter_context(patch.object(main, "get_vk_video_from_post",
                                              side_effect=RuntimeError("VK fixture failure")))
-        main.main()
+        prelaunch.main()
         parsed = blocks(self.text())
         self.posts.assert_called_once()
         continued = next(b for b in parsed if b["title"].startswith("ПРОДОЛЖЕНИЕ НОВОСТИ"))
@@ -236,7 +244,7 @@ class LoggingChecks(unittest.TestCase):
                                        "url": "https://vk.ru/wall-1_2"}]
         self.stack.enter_context(patch.object(main, "get_vk_video_from_post",
             return_value={"player": "https://example.invalid/player?a=1&b=2"}))
-        main.main()
+        prelaunch.main()
         text = self.text()
         self.assertIn('\tVIDEO URL: https://example.invalid/player?a=1&b=2\n', text)
         self.assertNotIn('EMBED:', text)
@@ -250,7 +258,7 @@ class LoggingChecks(unittest.TestCase):
         self.stack.enter_context(patch.object(main, "mark_email_processed",
                                              side_effect=OSError("mail finalize failed")))
         with self.assertRaisesRegex(OSError, "mail finalize failed"):
-            main.main()
+            prelaunch.main()
         text = self.text()
         self.assertEqual(text.count("[ERROR]"), 1)
         self.assertNotIn("[OK]", text)
@@ -258,10 +266,10 @@ class LoggingChecks(unittest.TestCase):
 
     def test_cannot_create_journal_stops_before_download(self):
         self.logs.write_text("This is a file, not a directory", encoding="utf-8")
-        self.stack.enter_context(patch.object(mail, "find_oldest_unseen", return_value=("25", "ЗГП")))
+        self.stack.enter_context(patch.object(mail, "search_unseen_news", return_value=[("25", "ЗГП")]))
         download = self.stack.enter_context(patch.object(mail, "download_with_retries"))
         with self.assertRaises(OSError):
-            main.main()
+            prelaunch.main()
         download.assert_not_called()
         self.assertIn("[ERROR]", self.console.getvalue())
         self.assertFalse(log._logger.handlers)
@@ -272,15 +280,15 @@ class LoggingChecks(unittest.TestCase):
                                                            side_effect=OSError("cleanup failed")))
         clean_eml = self.stack.enter_context(patch.object(main, "cleanup_downloaded_eml"))
         with self.assertRaisesRegex(OSError, "cleanup failed"):
-            main.main()
+            prelaunch.main()
         clean_images.assert_called_once_with(None)
         clean_eml.assert_called_once_with()
         text = self.text()
         self.assertIn("pipeline failed", text)
         self.assertIn("cleanup failed", text)
-        lock = main.acquire_process_lock()
+        lock = prelaunch.acquire_process_lock()
         self.assertIsNotNone(lock)
-        main.release_process_lock(lock)
+        prelaunch.release_process_lock(lock)
 
     def test_multiline_prefix_and_transport_roundtrip(self):
         log.setup()
@@ -390,14 +398,14 @@ class LoggingChecks(unittest.TestCase):
         self.posts.side_effect = create_then_break_disk
         try:
             with self.assertRaises(log.LogWriteError):
-                main.main()
+                prelaunch.main()
             self.assertEqual(self.posts.call_count, 1)
             self.assertIn("[ERROR]", self.console.getvalue())
             self.assertFalse(list((self.root / "eml").iterdir()))
             self.assertFalse(log._logger.handlers)
-            lock = main.acquire_process_lock()
+            lock = prelaunch.acquire_process_lock()
             self.assertIsNotNone(lock)
-            main.release_process_lock(lock)
+            prelaunch.release_process_lock(lock)
         finally:
             for stream in original_streams:
                 stream.close()
@@ -419,7 +427,7 @@ class LoggingChecks(unittest.TestCase):
 
         download.calls = 0
         self.stack.enter_context(patch.object(mail, "download_by_uid", side_effect=download))
-        main.main()
+        prelaunch.main()
         parsed = blocks(self.text())
         self.assertTrue(any(b["level"] == "WARNING" for b in parsed))
         retry = next(b for b in parsed if "ПОВТОРНОЕ СКАЧИВАНИЕ" in b["title"])

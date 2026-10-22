@@ -1,5 +1,6 @@
 import os
 import re
+from urllib.parse import unquote, urlsplit
 
 import requests
 
@@ -59,6 +60,40 @@ def get_auth():
         WP_USERNAME,
         WP_APP_PASSWORD
     )
+
+
+def get_default_media_id():
+    """Find the existing exact filename, including paginated search results."""
+    filename = "s600xu_2x.webp"
+    page = 1
+    while True:
+        response = requests.get(
+            f"{WP_URL}/wp-json/wp/v2/media",
+            auth=get_auth(),
+            params={"search": os.path.splitext(filename)[0], "per_page": 100,
+                    "page": page, "orderby": "id", "order": "asc", "media_type": "image"},
+            timeout=WP_API_TIMEOUT,
+        )
+        response.raise_for_status()
+        items = response.json()
+        if not isinstance(items, list):
+            raise RuntimeError("WordPress вернул некорректный список медиа.")
+        for media in items:
+            details = media.get("media_details") or {}
+            names = {
+                os.path.basename(unquote(urlsplit(media.get("source_url") or "").path)),
+                os.path.basename(details.get("file") or ""),
+                details.get("original_image") or "",
+            }
+            if filename in names and isinstance(media.get("id"), int) and media["id"] > 0:
+                return media["id"]
+        total_pages = response.headers.get("X-WP-TotalPages")
+        if (total_pages is not None and page >= int(total_pages)) or not items or (
+            total_pages is None and len(items) < 100
+        ):
+            break
+        page += 1
+    raise RuntimeError(f"Стандартная картинка {filename} не найдена в медиатеке WordPress.")
 
 
 def upload_media(

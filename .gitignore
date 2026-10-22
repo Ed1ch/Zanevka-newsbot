@@ -47,5 +47,7 @@ env/
 /logs/
 /stable_backup/
 *.lock
+/delayed.publish
+/.newsbot.disabled
 
 

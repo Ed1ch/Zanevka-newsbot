@@ -172,10 +172,8 @@ def search_unseen_news(mail):
 
         try:
             raw_headers = extract_raw_email(fetch_data)
-        except RuntimeError:
-            log.block(f"UID {uid}: Subject получить не удалось, письмо пропущено.",
-                      level="WARNING")
-            continue
+        except RuntimeError as error:
+            raise RuntimeError(f"UID {uid}: Subject получить не удалось; проверка остановлена.") from error
 
         subject = decode_subject(raw_headers)
 
@@ -288,10 +286,10 @@ def uid_is_seen(mail, uid):
 
         for value in values:
             if isinstance(value, (bytes, bytearray)):
-                if b"\\Seen" in value:
-                    return True
+                if b"FLAGS" in value.upper():
+                    return b"\\seen" in {flag.lower() for flag in imaplib.ParseFlags(value)}
 
-    return False
+    raise RuntimeError(f"IMAP-сервер не вернул FLAGS для UID {uid}.")
 
 
 def mark_seen_by_uid(mail, uid):
@@ -508,6 +506,45 @@ def download_news_email(stats=None):
             "Переходим к следующему "
             "непрочитанному письму."
         )
+
+
+def download_news_batch():
+    """Freeze the UNSEEN list once; a terminal download failure stops the batch."""
+    log.block(f"ПРОВЕРКА INBOX {IMAP_USERNAME} ...")
+    mail = None
+    try:
+        mail = connect_mail()
+        matches = search_unseen_news(mail)
+    finally:
+        close_mail(mail)
+    if not matches:
+        return []
+
+    log.activate()
+    log.detail(f"Писем в партии: {len(matches)}")
+    log.detail("UID партии: " + ", ".join(str(uid) for uid, _ in matches))
+    downloaded = []
+    for uid, subject in matches:
+        output_path = download_with_retries(uid)
+        if output_path is None:
+            raise RuntimeError(f"Партия остановлена: не удалось скачать UID {uid} после всех попыток.")
+        reserve_downloaded_email(uid, output_path)
+        downloaded.append((uid, output_path, subject))
+    return downloaded
+
+
+def mark_email_unseen(uid):
+    """Return one deferred member to UNSEEN and verify the server's FLAGS."""
+    mail = None
+    try:
+        mail = connect_mail()
+        status, _ = mail.uid("store", str(uid), "-FLAGS", "(\\Seen)")
+        ensure_ok(status, f"Не удалось вернуть UID {uid} в UNSEEN.")
+        if uid_is_seen(mail, uid):
+            raise RuntimeError(f"IMAP-сервер не подтвердил UNSEEN для UID {uid}.")
+        log.detail(f"UID {uid}: возвращено UNSEEN для отложенной публикации.")
+    finally:
+        close_mail(mail)
 
 
 def mark_email_failed(uid):

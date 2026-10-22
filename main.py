@@ -1,6 +1,7 @@
 import html
 import mimetypes
 import os
+from pathlib import Path
 import requests
 import log
 
@@ -11,7 +12,8 @@ from config import (
 )
 
 from mail_downloader import (
-    download_news_email,
+    download_news_batch,
+    mark_email_unseen,
     mark_email_failed,
     mark_email_processed,
 )
@@ -23,97 +25,21 @@ from eml_links import (
 )
 from news_parser import (
     build_news,
-    find_matching_images,
 )
 
 from image_manager import (
     upload_media,
     upload_media_bytes,
+    get_default_media_id,
 )
+
+from integrity_check import check_integrity
 
 from wordpress import create_post
 
 from vk_video import (
     get_vk_video_from_post,
 )
-
-
-LOCK_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    ".main.lock",
-)
-
-
-def acquire_process_lock():
-    """
-    Захватывает системный lock для единственного экземпляра main.py.
-
-    Сам файл .main.lock может оставаться на диске после завершения.
-    Важен не факт его существования, а системная блокировка файла,
-    которая автоматически освобождается ОС при завершении процесса.
-    """
-    lock_file = open(
-        LOCK_FILE,
-        "a+",
-        encoding="utf-8",
-    )
-
-    lock_file.seek(0, os.SEEK_END)
-
-    if lock_file.tell() == 0:
-        lock_file.write("0")
-        lock_file.flush()
-
-    lock_file.seek(0)
-
-    try:
-        if os.name == "nt":
-            import msvcrt
-
-            msvcrt.locking(
-                lock_file.fileno(),
-                msvcrt.LK_NBLCK,
-                1,
-            )
-        else:
-            import fcntl
-
-            fcntl.flock(
-                lock_file.fileno(),
-                fcntl.LOCK_EX | fcntl.LOCK_NB,
-            )
-
-    except (OSError, IOError):
-        lock_file.close()
-        return None
-
-    return lock_file
-
-
-def release_process_lock(lock_file):
-    if lock_file is None:
-        return
-
-    try:
-        lock_file.seek(0)
-
-        if os.name == "nt":
-            import msvcrt
-
-            msvcrt.locking(
-                lock_file.fileno(),
-                msvcrt.LK_UNLCK,
-                1,
-            )
-        else:
-            import fcntl
-
-            fcntl.flock(
-                lock_file.fileno(),
-                fcntl.LOCK_UN,
-            )
-    finally:
-        lock_file.close()
 
 
 def download_vk_preview(url):
@@ -173,6 +99,8 @@ def process_vk(
     preview = vk_data.get("preview")
 
     if not preview:
+        if not news.get("featured_image"):
+            raise RuntimeError("VK не вернул preview для новости без картинок.")
         return
 
     use_preview = (
@@ -316,65 +244,59 @@ def cleanup_downloaded_eml():
             )
 
 
-def print_image_matching_report(documents, images):
-    """
-    Показывает привязку картинок до публикации.
-    Отчёт информационный и не влияет на обработку новостей.
-    """
-    matches = []
-    matched_by_image = {
-        image["filename"]: []
-        for image in images
-    }
+def process_batch(downloaded, *, defer_if_incomplete, delayed_publish_file):
+    """Prepare all EML together; only then allow WordPress side effects."""
+    documents = []
+    images = []
+    emails = []
+    seen_names = set()
+    for uid, eml_path, subject in downloaded:
+        log.email_started(uid, subject, eml_path)
+        email_data = extract_attachments(eml_path)
+        emails.append(email_data)
+        log.attachments_found(len(email_data["documents"]), len(email_data["images"]))
+        for kind, target in (("documents", documents), ("images", images)):
+            for item in email_data[kind]:
+                key = item["filename"].casefold()
+                if key in seen_names:
+                    log.block(f"Дубль вложения пропущен: {item['filename']}", level="WARNING")
+                    log.detail(f"UID {uid}: сохранено первое вложение с этим именем.")
+                    continue
+                seen_names.add(key)
+                target.append(item)
 
-    for document in documents:
-        doc_filename = document["filename"]
-        matched_images = find_matching_images(
-            doc_filename,
-            images
-        )
-
-        matches.append((doc_filename, [image["filename"] for image in matched_images]))
-        for image in matched_images:
-            image_filename = image["filename"]
-            matched_by_image[image_filename].append(
-                doc_filename
-            )
-
-    unmatched_images = [
-        filename
-        for filename, matched_docs in matched_by_image.items()
-        if not matched_docs
-    ]
-
-    ambiguous_images = {
-        filename: matched_docs
-        for filename, matched_docs in matched_by_image.items()
-        if len(matched_docs) > 1
-    }
-
-    log.matching_report(matches, unmatched_images, ambiguous_images)
-
-
-
-def process_email(eml_path):
-    """Обрабатывает одно EML; ошибка отдельной новости не прерывает цикл."""
-    email_data = extract_attachments(eml_path)
-    documents = email_data["documents"]
-    images = email_data["images"]
-    log.attachments_found(len(documents), len(images))
-
-    print_image_matching_report(documents, images)
     news_list = build_news(documents, images)
-    log.detail(f"Новостей собрано: {len(news_list)}")
+    log.detail(f"Новостей собрано в партии: {len(news_list)}")
 
-    vk_links = extract_vk_links(email_data, documents)
+    # Keep email text boundaries: a link in one EML cannot leak into another.
+    vk_links = []
+    for email_data in emails:
+        vk_links.extend(extract_vk_links(email_data, documents))
     vk_by_document = {item["document"]: item for item in vk_links}
     vk_links_from_docx = extract_vk_links_from_docx(documents)
     vk_by_document_from_docx = {item["document"]: item for item in vk_links_from_docx}
     log.vk_links_report(vk_links, vk_links_from_docx)
-    log.block(f"ПУБЛИКАЦИЯ на {WP_URL} ...")
 
+    report = check_integrity(documents, images, set(vk_by_document) | set(vk_by_document_from_docx))
+    log.matching_report(report["matches"], report["unmatched_images"], report["ambiguous_images"])
+    if report["documents_without_media"]:
+        log.detail("DOCX без картинок и без VK:")
+        for filename in report["documents_without_media"]:
+            log.detail(f"  ! {filename}")
+    if defer_if_incomplete and report["incomplete"]:
+        # Only a successful UNSEEN operation for every member permits the flag.
+        for uid, _, _ in downloaded:
+            mark_email_unseen(uid)
+        with Path(delayed_publish_file).open("x", encoding="utf-8"):
+            pass
+        log.block("ПУБЛИКАЦИЯ ОТЛОЖЕНА", level="WARNING")
+        log.detail("Неполное соответствие картинок и DOCX. Публикация не начиналась.")
+        log.detail(f"Возвращено UNSEEN писем: {len(downloaded)}")
+        log.detail("Повторная обработка — при следующем запуске (по расписанию через 2 часа).")
+        return None
+
+    log.block(f"ПУБЛИКАЦИЯ ПАРТИИ на {WP_URL} ...")
+    default_media_id = None
     email_ok = True
     for number, news in enumerate(news_list, start=1):
         log.news_started(number, news["title"])
@@ -405,11 +327,21 @@ def process_email(eml_path):
                 except log.LogWriteError:
                     raise
                 except Exception as error:
+                    if not news.get("featured_image"):
+                        raise
                     log.problem("ПРЕДУПРЕЖДЕНИЕ VK", error)
                     log.detail("Новость будет опубликована без VK-видео/preview.")
                     # Resume with a new INFO header so the continuation does not
                     # accidentally inherit WARNING in the future API reader.
                     log.news_started(number, news["title"], continued=True)
+
+            if vk_info and not news.get("featured_image") and not news.get("featured_media_id"):
+                raise RuntimeError("Для новости с VK не получено изображение preview.")
+            if not news.get("featured_image") and not vk_info:
+                if default_media_id is None:
+                    default_media_id = get_default_media_id()
+                news["featured_media_id"] = default_media_id
+                log.detail(f"Стандартная картинка из медиатеки: ID {default_media_id}")
 
             log.detail("[3] Создание записи...")
             post = create_post(news)
@@ -419,63 +351,55 @@ def process_email(eml_path):
         except Exception as error:
             email_ok = False
             log.problem(f"Новость #{number} не обработана полностью", error)
-            log.detail("Переходим к следующей новости письма.")
+            log.detail("Переходим к следующей новости партии.")
 
     return email_ok
 
 
-def run_pipeline():
-    processed_emails = 0
-    failed_emails = 0
-    mail_stats = {"failed_downloads": 0}
+def run_pipeline(*, defer_if_incomplete, delayed_publish_file):
+    downloaded = download_news_batch()
+    if not downloaded:
+        return 0, 0, 0, 0
 
-    while True:
-        downloaded = download_news_email(stats=mail_stats)
-        if downloaded is None:
-            log.detail("Непрочитанных ЗГП-писем для обработки больше нет.")
-            break
+    batch_ok = process_batch(
+        downloaded,
+        defer_if_incomplete=defer_if_incomplete,
+        delayed_publish_file=delayed_publish_file,
+    )
+    if batch_ok is None:
+        return 0, 0, 0, len(downloaded)
 
-        uid, eml_path, subject = downloaded
-        log.email_started(uid, subject, eml_path)
-        email_ok = False
-        try:
-            email_ok = process_email(eml_path)
-        except log.LogWriteError:
-            raise
-        except Exception as error:
-            log.problem(f"Не удалось обработать письмо UID {uid}", error)
-            email_ok = False
-        finally:
-            log.block(f"ЗАВЕРШЕНИЕ ОБРАБОТКИ ПИСЬМА UID {uid}")
-            cleanup_working_files(eml_path)
-
-        # Failures here propagate to main(): continuing would leave the mailbox
-        # state uncertain. The final ERROR is emitted once, with its traceback.
-        if email_ok:
+    log.block("ЗАВЕРШЕНИЕ ОБРАБОТКИ ПАРТИИ")
+    for uid, _, _ in downloaded:
+        if batch_ok:
             mark_email_processed(uid)
-            processed_emails += 1
         else:
             mark_email_failed(uid)
-            failed_emails += 1
-
-    return processed_emails, failed_emails, mail_stats["failed_downloads"]
+    return (len(downloaded), 0, 0, 0) if batch_ok else (0, len(downloaded), 0, 0)
 
 
-def main():
-    lock_file = acquire_process_lock()
-    if lock_file is None:
-        # A duplicate run is intentionally silent and does not touch the journal.
-        return
-
+def main(*, defer_if_incomplete=True, delayed_publish_file=None):
+    """Internal pipeline entry; external callers use prelaunch.main()."""
+    delayed_publish_file = Path(delayed_publish_file) if delayed_publish_file is not None else (
+        Path(__file__).resolve().with_name("delayed.publish")
+    )
     logging_ready = False
     try:
         log.setup()
         logging_ready = True
         log.block("Process lock получен")
-        log.detail("Workflow: CHECK INBOX → PROCESS EML → DOC+IMG MATCHING → "
-                   "VK PARSE → WORDPRESS PUBLISHING")
+        log.detail("Режим: " + ("первый проход, отсрочка разрешена" if defer_if_incomplete else
+                                "повторный проход, отсрочка запрещена"))
+        log.detail("Workflow: CHECK INBOX → DOWNLOAD BATCH → DOC+IMG MATCHING → "
+                   "VK PARSE → INTEGRITY CHECK → WORDPRESS PUBLISHING")
         try:
-            summary = run_pipeline()
+            if not defer_if_incomplete:
+                delayed_publish_file.unlink()
+                log.detail("Одноразовый delayed.publish погашен.")
+            summary = run_pipeline(
+                defer_if_incomplete=defer_if_incomplete,
+                delayed_publish_file=delayed_publish_file,
+            )
         finally:
             # Both cleanups are attempted even if the first one raises.
             try:
@@ -483,8 +407,11 @@ def main():
             finally:
                 cleanup_downloaded_eml()
 
-        processed, failed, downloads_failed = summary
-        if processed or failed or downloads_failed:
+        processed, failed, downloads_failed, delayed = summary
+        if delayed:
+            log.block("ЗАПУСК ЗАВЕРШЁН: ПУБЛИКАЦИЯ ОТЛОЖЕНА", level="WARNING")
+            log.detail(f"Писем отложено: {delayed}")
+        elif processed or failed or downloads_failed:
             level = "WARNING" if failed or downloads_failed else "OK"
             log.run_finished(level, processed, failed, downloads_failed)
         elif log.current_path() is not None:
@@ -500,11 +427,10 @@ def main():
             log.problem("Работа остановлена из-за ошибки", error, level="ERROR")
         raise
     finally:
-        try:
-            log.close()
-        finally:
-            release_process_lock(lock_file)
+        log.close()
 
 
 if __name__ == "__main__":
-    main()
+    from prelaunch import main as launch
+
+    launch()

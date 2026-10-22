@@ -48,7 +48,7 @@ IMAP_TRASH = "Trash"
 IMAP_SUBJECT = "ЗГП"
 
 # Папка создаётся автоматически.
-IMAP_OUTPUT_DIR = r".\downloaded_eml"
+IMAP_OUTPUT_DIR = "downloaded_eml"
 
 # Таймаут одной IMAP-сетевой операции, секунд.
 IMAP_TIMEOUT = 120

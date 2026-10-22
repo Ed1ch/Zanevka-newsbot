@@ -52,7 +52,7 @@ def extract_attachments(eml_path):
 
     with open(eml_path, "rb") as f:
         msg = BytesParser(
-            policy=policy.default
+            policy=policy.default.clone(raise_on_defect=True)
         ).parse(f)
 
     documents = []
@@ -78,8 +78,8 @@ def extract_attachments(eml_path):
 
             try:
                 content = part.get_content()
-            except Exception:
-                content = ""
+            except Exception as error:
+                raise ValueError("Не удалось разобрать text/plain в EML.") from error
 
             if content:
                 text_parts.append(
@@ -96,8 +96,8 @@ def extract_attachments(eml_path):
 
             try:
                 content = part.get_content()
-            except Exception:
-                content = ""
+            except Exception as error:
+                raise ValueError("Не удалось разобрать text/html в EML.") from error
 
             if content:
                 html_parts.append(
@@ -126,6 +126,8 @@ def extract_attachments(eml_path):
         )
 
         if not data:
+            if extension == ".docx" or extension in IMAGE_EXTENSIONS:
+                raise ValueError(f"Пустое или повреждённое вложение: {filename}")
             continue
 
         # ---------------------------------

@@ -117,7 +117,7 @@ Cleanup of the downloaded `.eml` and `extracted_images/` must happen even when p
 
 VK objects may occur inside nested `attachments`. Preserve recursive attachment handling when modifying VK processing.
 
-`main.py` is the orchestration layer; domain-specific parsing, VK processing and WordPress logic should remain in their relevant modules.
+`prelaunch.py` owns the shared process lock and external launch mode. `main.py` is the single batch orchestration layer; `integrity_check.py` returns a pure completeness report. External callers must use `prelaunch.main()` so the lock covers processing and cleanup. Domain-specific parsing, VK processing and WordPress logic remain in their relevant modules.
 
 ## Git
 
