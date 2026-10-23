@@ -1,0 +1,12 @@
+{
+  "username": "CHOOSE_LOCALLY_WITH_INIT_ADMIN",
+  "password_hash": "GENERATED_LOCALLY_BY_INIT_ADMIN",
+  "session_key": "GENERATED_RANDOMLY_BY_INIT_ADMIN",
+  "host": "127.0.0.1",
+  "port": 8081,
+  "threads": 12,
+  "prefix": "",
+  "external_https": true,
+  "trusted_proxies": ["127.0.0.1"],
+  "session_hours": 8
+}

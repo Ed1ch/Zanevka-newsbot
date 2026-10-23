@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Вход — Zanevka Newsbot</title>
+  <link rel="icon" href="index_files/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="index_files/style.css">
+  <link rel="stylesheet" href="index_files/themes.css">
+  <link rel="stylesheet" href="index_files/login.css">
+</head>
+<body>
+  <main class="app login-app">
+    <form id="login-form" class="settings-body login-form">
+      <h1>Zanevka <strong>Newsbot</strong></h1>
+      <label class="field"><span class="field-label">Имя администратора</span><input name="username" autocomplete="username" required autofocus></label>
+      <label class="field"><span class="field-label">Пароль</span><input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="save-button" type="submit" disabled>Войти</button>
+      <p id="login-error" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+  <script src="index_files/login.js"></script>
+</body>
+</html>

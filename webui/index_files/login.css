@@ -1,0 +1,6 @@
+/* Isolated layout only. Colors/inputs/button inherit the original first theme. */
+.login-app { justify-content: center; align-items: center; }
+.login-form { width: min(380px, calc(100% - 32px)); height: auto; padding: 28px; gap: 18px; }
+.login-form h1 { width: auto; font-size: 22px; }
+.login-form .save-button { margin-left: 0; }
+#login-error { min-height: 1.5em; margin: 0; }

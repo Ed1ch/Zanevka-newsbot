@@ -6,31 +6,24 @@
     const panelToggle = $('toggle-panel');
     const tabs = [...document.querySelectorAll('[role="tab"]')];
     const inputs = [...form.querySelectorAll('input[name], select[name]')];
-    const defaults = Object.fromEntries(inputs.map(input => [input.name, input.value]));
-    const storageKey = 'zanevka-console-prototype-v1';
-    const initialRecords = [
-      { session: 'newsbot_2026-10-10.log', time: '02:00:00', level: 'info', message: 'Начало обработки новостной почты.' },
-      { time: '02:00:01', level: 'success', message: 'IMAP: подключение установлено. Папка INBOX открыта.' },
-      { time: '02:00:02', level: 'info', message: 'Фильтр темы: «ЗГП». Найдено 3 новых письма.' },
-      { time: '02:00:03', level: 'info', message: 'Загружено: ЗГП_2026-10-10_001.eml · 248 КБ' },
-      { time: '02:00:04', level: 'info', message: 'Извлечены текст, 4 изображения и 1 ссылка на VK.' },
-      { time: '02:00:05', level: 'warning', message: 'VK: видеозапись недоступна. Обработка письма продолжается.' },
-      { time: '02:00:07', level: 'success', message: 'WordPress: создан черновик «Новости городского поселения».' },
-      { time: '02:00:08', level: 'muted', message: 'Временные файлы письма удалены.' },
-      { time: '02:00:09', level: 'info', message: 'Загружено: ЗГП_2026-10-10_002.eml · 186 КБ' },
-      { time: '02:00:10', level: 'error', message: 'Не найден текст новости. Письмо пропущено, очередь продолжается.' },
-      { time: '02:00:11', level: 'info', message: 'Загружено: ЗГП_2026-10-10_003.eml · 314 КБ' },
-      { time: '02:00:13', level: 'success', message: 'WordPress: создан черновик «События и объявления».' },
-      { time: '02:00:14', level: 'success', message: 'Готово. 3 письма обработано · 2 черновика · 1 письмо пропущено.', emphasis: true },
-      { time: '02:00:14', level: 'muted', message: 'Следующий плановый запуск: 04:00 · Europe/Moscow' }
-    ];
-    let records = initialRecords.map(record => ({...record}));
-    let removedRecords = null, paused = false, activeTab = 'mail', collapsed = true;
+    let defaults = {}, loadedValues = {}, revision = null, csrfToken = '';
+    let records = [];
+    let removedRecords = null, activeTab = 'mail', collapsed = true;
     const settingsWindow = { x: 0, y: 0, width: 0, height: 0 };
-    let windowGesture = null, ignoreTabClick = false;
-    let running = false, failed = false, runTimers = [], logScale = 100;
+    let windowGesture = null, ignoreTabClick = false, logScale = 100;
+    let serverStatus = null, connected = false, requestPending = false, source = null;
+    let syncing = false, cursor = null, lastDiagnostic = '';
+    const delivered = new Map();
+    const apiBase = new URL('api/', document.baseURI);
+    const workInputs = inputs.filter(input => !input.name.startsWith('DEMO_'));
+    workInputs.forEach(input => { input.disabled = true; input.value = ''; });
+    $('save-settings').disabled = true;
+    $('reset-settings').disabled = true;
+    $('run-now').disabled = true;
+    $('schedule-toggle').disabled = true;
+    try { localStorage.removeItem('zanevka-console-prototype-v1'); } catch { /* Optional cleanup. */ }
     const dirtyTabs = new Set();
-    const levelLabels = { info: 'INFO', success: 'OK', warning: 'WARN', error: 'ERROR', muted: 'INFO' };
+    const levelLabels = { info: 'INFO', success: 'OK', warning: 'WARNING', error: 'ERROR', muted: 'INFO' };
     const logTail = document.createElement('div');
     logTail.className = 'log-scroll-tail';
     logTail.setAttribute('aria-hidden', 'true');
@@ -79,7 +72,7 @@
       }
       let currentSession = '';
       visible.forEach(record => {
-        const session = record.session || currentSession || 'newsbot_2026-10-10.log';
+        const session = record.session || currentSession || 'WebUI';
         if (session !== currentSession) {
           const heading = document.createElement('div'); heading.className = 'log-session';
           const label = document.createElement('span'); label.className = 'file-name'; label.textContent = session;
@@ -87,14 +80,10 @@
           heading.append(label, rule); output.append(heading); currentSession = session;
         }
         const row = document.createElement('div'); row.className = 'log-row ' + record.level + (record.emphasis ? ' emphasis' : '');
-        for (const [className, text] of [['time', record.time], ['level', levelLabels[record.level]], ['message', record.message]]) {
+        for (const [className, text] of [['time', record.continuation ? '' : record.time], ['level', record.continuation ? '' : (record.rawLevel || levelLabels[record.level])], ['message', record.message]]) {
           const span = document.createElement('span');
           span.className = className;
           span.textContent = text;
-
-          if (className === 'message' && record.intro) {
-            span.style.color = '#FAFEFF';
-          }
 
           row.append(span);
         }
@@ -110,21 +99,28 @@
     }
 
     function currentStamp() {
-      const now = new Date(), timeZone = form.elements.DEMO_TIMEZONE.value;
-      const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
-      const date = Object.fromEntries(parts.map(part => [part.type, part.value]));
-      return {
-        session: 'newsbot_' + date.year + '-' + date.month + '-' + date.day + '.log',
-        time: new Intl.DateTimeFormat('ru-RU', { timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(now)
-      };
+      // Only local UI actions use browser time; bot lines always carry server time.
+      return { session: 'WebUI', time: new Date().toLocaleTimeString('ru-RU') };
     }
 
-    function appendRecord(record) {
+    let renderQueued = false;
+    function paintRecords() {
       const scrollTop = output.scrollTop;
-      records.push({ ...currentStamp(), ...record });
       renderLog();
       if (followLog) scrollToLastRecord();
       else output.scrollTop = scrollTop;
+    }
+
+    function appendRecord(record, defer = false) {
+      records.push({ ...currentStamp(), ...record });
+      if (records.length > 10000) records.splice(0, records.length - 10000);
+      if (!defer) { paintRecords(); return; }
+      // History and bursts of SSE lines share one paint, without changing DOM
+      // structure or making ten thousand full renders for one history response.
+      if (!renderQueued) {
+        renderQueued = true;
+        requestAnimationFrame(() => { renderQueued = false; paintRecords(); });
+      }
     }
 
     function uiLog(message, level = 'info', undo = false) {
@@ -313,10 +309,15 @@
     }
 
     function updateSchedule() {
-      const interval = form.elements.DEMO_INTERVAL.value;
-      const labels = {1:'каждый час',2:'каждые 2 часа',4:'каждые 4 часа',6:'каждые 6 часов',12:'каждые 12 часов'};
-      $('cron-expression').textContent = interval === '1' ? '0 * * * *' : '0 */' + interval + ' * * *';
-      $('cron-description').textContent = 'Запуск ' + labels[interval] + ', в начале часа.';
+      const schedule = serverStatus?.schedule;
+      const interval = form.elements.DEMO_INTERVAL, timezone = form.elements.DEMO_TIMEZONE;
+      interval.disabled = true; timezone.disabled = true;
+      const expression = schedule?.expression;
+      const match = expression?.match(/^0 \*\/(1|2|4|6|12) \* \* \*$/);
+      interval.value = expression === '0 * * * *' ? '1' : match ? match[1] : '';
+      timezone.value = schedule?.timezone || '';
+      $('cron-expression').textContent = expression || '—';
+      $('cron-description').textContent = schedule?.detail || 'Расписание не подтверждено.';
     }
 
     $('clear-log').addEventListener('click', () => {
@@ -325,7 +326,7 @@
     });
     $('download-log').addEventListener('click', () => {
       uiLog('Журнал подготовлен к загрузке.');
-      const text = records.map(record => record.time + ' [' + levelLabels[record.level] + '] ' + record.message).join('\r\n') + '\r\n';
+      const text = records.map(record => record.rawText !== undefined ? record.rawText : record.time + ' [' + levelLabels[record.level] + '] ' + record.message).join('\r\n') + '\r\n';
       const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
       const link = document.createElement('a'); link.href = url; link.download = currentStamp().session;
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -426,52 +427,117 @@
 		}
 	});
     function updateStatus() {
-      const state = running ? 'running' : failed ? 'error' : paused ? 'stopped' : 'running';
+      const process = connected ? serverStatus?.process_state : 'unknown';
+      const busy = requestPending || ['running', 'starting'].includes(process);
+      const schedule = serverStatus?.schedule;
+      const confirmedSchedule = schedule?.enabled === true && schedule?.task_state === 'present';
+      const state = process === 'unknown' || !serverStatus ? 'error' : busy || confirmedSchedule ? 'running' : 'stopped';
       $('running-status').dataset.state = state;
-      $('running-status').classList.toggle('is-running', running);
-      $('status-text').textContent = { running: 'Работает', error: 'Ошибка', stopped: 'Остановлен' }[state];
-      $('running-status').title = running ? 'Идёт тестовый прогон main.py' : failed ? 'Работа остановлена из-за ошибки' : paused ? 'Автоматические запуски отключены' : 'Автоматические запуски разрешены';
-      $('schedule-toggle').setAttribute('aria-checked', String(!paused));
-      $('run-now').disabled = running;
-      $('run-now').setAttribute('aria-busy', String(running));
-    }
-
-    $('schedule-toggle').addEventListener('click', () => {
-      paused = !paused;
-      updateStatus();
+      $('running-status').classList.toggle('is-running', busy);
+      $('status-text').textContent = process === 'unknown' || !serverStatus ? 'Ошибка' : schedule?.platform === 'Windows/manual' && !busy ? 'Windows/manual' : {running:'Работает',stopped:'Остановлен'}[state];
+      $('running-status').title = process === 'unknown' ? 'Состояние неизвестно; связь с API не подтверждена' : busy ? 'Бот выполняется или запускается' : schedule?.detail || 'Бот не выполняется';
+      $('schedule-toggle').setAttribute('aria-checked', String(schedule?.enabled === true));
+      $('schedule-toggle').disabled = !connected || !schedule || schedule.platform === 'Windows/manual';
+      $('run-now').disabled = !connected || requestPending || !serverStatus?.can_run;
+      $('run-now').setAttribute('aria-busy', String(busy));
       updateSchedule();
-      uiLog(paused ? 'Автоматические запуски отключены.' + (running ? ' Текущая обработка продолжится.' : '') : 'Автоматические запуски включены.');
-    });
-
-    function stopRun(errorMessage) {
-      runTimers.forEach(clearTimeout); runTimers = [];
-      running = false; failed = Boolean(errorMessage); updateStatus();
-      if (failed) appendRecord({ level: 'error', message: 'main.py: работа остановлена из-за ошибки. ' + errorMessage });
     }
 
-    $('run-now').addEventListener('click', () => {
-      if (running) return;
-      running = true; failed = false; updateStatus();
-      setLogFollowing(true);
-      uiLog('Запрошен тестовый прогон main.py.');
-      const steps = initialRecords.slice(0, -1);
-      steps.forEach((record, index) => {
-        runTimers.push(setTimeout(() => appendRecord({
-          level: record.level, emphasis: record.emphasis,
-          message: index === 0 ? 'main.py: ' + record.message : record.message
-        }), (index + 1) * 650));
+    function loginRedirect() {
+      source?.close();
+      location.assign(new URL('login', document.baseURI));
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(new URL(path, apiBase), {
+        credentials: 'same-origin', ...options,
+        headers: {'Content-Type':'application/json', 'X-CSRF-Token':csrfToken, ...options.headers}
       });
-      runTimers.push(setTimeout(() => {
-        stopRun();
-        uiLog('Тестовый прогон main.py завершён. Код выхода: 0.', 'success');
-      }, (steps.length + 1) * 650));
+      if (response.status === 401) { loginRedirect(); throw new Error('Требуется вход.'); }
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error?.message || 'Ошибка API.');
+      return result;
+    }
+
+    function showError(error) {
+      uiLog(error.message || 'Потеряна связь с API.', 'error');
+    }
+
+    $('schedule-toggle').addEventListener('click', async () => {
+      $('schedule-toggle').disabled = true;
+      try {
+        await api('schedule', {method:'PUT', body:JSON.stringify({enabled:serverStatus.schedule.enabled !== true})});
+        await refreshStatus();
+      } catch (error) { showError(error); updateStatus(); }
     });
 
-    // Test/backend hook; recoverable ERROR entries in the log do not stop a run.
-    window.addEventListener('newsbot:error', event => {
-      const message = typeof event.detail === 'string' ? event.detail : event.detail && event.detail.message;
-      stopRun(message || 'Не удалось завершить обработку.');
+    $('run-now').addEventListener('click', async () => {
+      if ($('run-now').disabled) return;
+      requestPending = true; updateStatus(); setLogFollowing(true);
+      try {
+        await api('run', {method:'POST', body:'{}'});
+        uiLog('Запрос запуска принят. Ход обработки — в журнале.');
+      } catch (error) { showError(error); }
+      finally { requestPending = false; await refreshStatus(); }
     });
+
+    async function refreshStatus() {
+      try {
+        serverStatus = await api('status'); connected = true; updateStatus();
+      } catch (error) {
+        connected = false; updateStatus();
+        if (lastDiagnostic !== error.message) { showError(error); lastDiagnostic = error.message; }
+      }
+    }
+
+    function receiveLine(line) {
+      const split = line.identity.lastIndexOf(':');
+      const generation = line.identity.slice(0, split), offset = Number(line.identity.slice(split + 1));
+      if (offset <= (delivered.get(generation) ?? -1)) return;
+      delivered.set(generation, offset);
+      if (delivered.size > 1024) delivered.delete(delivered.keys().next().value);
+      const level = {INFO:'info',OK:'success',WARNING:'warning',ERROR:'error'}[line.level] || 'info';
+      const header = line.type === 'header';
+      const message = header ? line.text.replace(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \[(INFO|OK|WARNING|ERROR)\] /, '') : line.text;
+      appendRecord({session:line.file,time:line.time || '',level,rawLevel:line.level,
+        rawText:line.text,message,continuation:!header}, true);
+    }
+
+    function connectEvents() {
+      source?.close();
+      const stream = new URL('events', apiBase); stream.searchParams.set('cursor', cursor);
+      source = new EventSource(stream);
+      source.addEventListener('open', () => { refreshStatus(); lastDiagnostic = ''; });
+      source.addEventListener('line', event => { cursor = event.lastEventId; receiveLine(JSON.parse(event.data)); });
+      source.addEventListener('status', event => {
+        cursor = event.lastEventId; serverStatus = JSON.parse(event.data); connected = true; updateStatus();
+      });
+      source.addEventListener('diagnostic', event => {
+        cursor = event.lastEventId;
+        const data = JSON.parse(event.data); uiLog(data.text, data.level === 'ERROR' ? 'error' : data.level === 'WARNING' ? 'warning' : 'info');
+      });
+      source.addEventListener('resync', () => {
+        source.close();
+        uiLog('Доступная история изменилась или соединение прерывалось. Загружается доступная часть журнала; прежние строки сохранены.', 'warning');
+        syncHistory().catch(showError);
+      });
+      source.onerror = async () => {
+        connected = false; updateStatus();
+        if (!lastDiagnostic) { uiLog('Связь с потоком потеряна; выполняется переподключение.', 'warning'); lastDiagnostic = 'stream'; }
+        try { const state = await api('session'); if (!state.authenticated) loginRedirect(); } catch { /* Native EventSource reconnects. */ }
+      };
+    }
+
+    async function syncHistory() {
+      if (syncing) return;
+      syncing = true;
+      try {
+        const history = await api('logs/history');
+        for (const line of history.lines) receiveLine(line);
+        if (history.truncated) uiLog('История превышает буфер панели; показан доступный конец журналов.', 'warning');
+        cursor = history.cursor; connectEvents();
+      } finally { syncing = false; }
+    }
 
     function setLogScale(value) {
       const next = Math.max(60, Math.min(200, value));
@@ -550,64 +616,65 @@
         updateSchedule();
       }
     });
-    form.addEventListener('submit', event => {
+    form.addEventListener('submit', async event => {
       event.preventDefault();
-      const invalid = inputs.find(input => !input.checkValidity());
+      if (!revision || $('save-settings').disabled) return;
+      const invalid = workInputs.find(input => !input.checkValidity());
       if (invalid) {
         const panel = invalid.closest('[role="tabpanel"]'); switchTab(panel.id.replace('panel-', ''));
         invalid.setAttribute('aria-invalid', 'true'); invalid.focus();
-        configStatus('Проверь поле «' + invalid.closest('.field').querySelector('.field-label').firstChild.textContent.trim() + '».', 'error');
-        return;
+        configStatus('Проверь поле «' + invalid.name + '».', 'error'); return;
       }
-      const values = Object.fromEntries(inputs.filter(input => !input.dataset.secret).map(input => [input.name, input.value]));
+      const values = {};
+      for (const input of workInputs) {
+        const value = input.type === 'number' ? Number(input.value) : input.value;
+        if (input.dataset.secret ? value !== '' : value !== loadedValues[input.name]) values[input.name] = value;
+      }
+      $('save-settings').disabled = true;
       try {
-        localStorage.setItem(storageKey, JSON.stringify(values));
-        dirtyTabs.clear();
-        configStatus('Настройки макета сохранены в этом браузере. Пароли и токены не сохраняются.', 'saved');
-      } catch {
-        configStatus('Браузер запретил сохранение. Значения остаются на странице.', 'error');
-      }
+        const result = await api('settings', {method:'PUT',body:JSON.stringify({values,revision})});
+        applySettings(result); dirtyTabs.clear();
+        configStatus('Настройки сохранены в config.py; применятся при следующем запуске.');
+      } catch (error) { showError(error); }
+      finally { $('save-settings').disabled = !revision; }
     });
-    $('reset-settings').addEventListener('click', () => {
-      const panel = $('panel-' + activeTab);
-      panel.querySelectorAll('input[name], select[name]').forEach(input => { input.value = defaults[input.name]; input.removeAttribute('aria-invalid'); });
-      panel.querySelectorAll('.secret-toggle').forEach(button => setSecretVisibility(button, false));
-      configStatus('Значения вкладки сброшены. Сохрани изменения.'); updateSchedule();
-    });
-    try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
-      if (saved && typeof saved === 'object') {
-        inputs.filter(input => !input.dataset.secret && Object.hasOwn(saved, input.name)).forEach(input => { input.value = saved[input.name]; });
-        configStatus('Загружено из этого браузера', 'saved');
-      }
-    } catch { /* Defaults remain usable when browser storage is unavailable. */ }
-    renderLog(); updateSchedule(); updateStatus();
 
-    function showIntroMessages() {
-      const messages = [
-		'***************************************************************************************************',
-		'Это макет веб-интерфейса для управления ботом, который выкладывает новости на zanevkaorg.ru',
-		'Макет предназначен для тестирования интерфейса и отключен от самого бота',
-        'Вкладки внизу открывают настройки. Двойной клик по активной вкладке закрывает настройки. За активную вкладку окно можно таскать',
-		'Ctrl+колесико мыши меняет масштаб лога',
-        'Цветовые темы можно менять кликом по заголовку Zanevka Newsbot',
-		'***************************************************************************************************',
-      ];
-
-      messages.forEach((message, index) => {
-        setTimeout(() => {
-          appendRecord({
-            level: 'info',
-            message,
-            intro: true
-          });
-        }, 3000 * (index + 1));
+    function applySettings(result) {
+      loadedValues = {...result.values}; defaults = {...result.values}; revision = result.revision;
+      workInputs.forEach(input => {
+        input.value = input.dataset.secret ? '' : result.values[input.name];
+        input.disabled = false;
+        if (input.dataset.secret) input.setAttribute('aria-description', result.configured_secrets[input.name] ? 'Значение настроено; пустое поле сохранит его.' : 'Значение не настроено.');
       });
+      document.querySelectorAll('.secret-toggle').forEach(button => setSecretVisibility(button, false));
+      $('save-settings').disabled = false; $('reset-settings').disabled = false;
     }
 
-    if (document.readyState === 'complete') {
-      showIntroMessages();
-    } else {
-      window.addEventListener('load', showIntroMessages, { once: true });
+    $('reset-settings').addEventListener('click', () => {
+      if (!revision) return;
+      $('panel-' + activeTab).querySelectorAll('input[name], select[name]').forEach(input => {
+        if (input.name.startsWith('DEMO_')) return;
+        input.value = input.dataset.secret ? '' : defaults[input.name]; input.removeAttribute('aria-invalid');
+      });
+      $('panel-' + activeTab).querySelectorAll('.secret-toggle').forEach(button => setSecretVisibility(button, false));
+      configStatus('Восстановлены загруженные значения config.py.');
+    });
+
+    async function initialize() {
+      try {
+        const state = await api('session');
+        if (!state.authenticated) { loginRedirect(); return; }
+        csrfToken = state.csrf_token;
+        await refreshStatus();
+        try { applySettings(await api('settings')); } catch (error) { showError(error); }
+        await syncHistory();
+        uiLog('Интервал и часовой пояс доступны только при достоверном чтении cron. Статические подписи вкладки будут уточнены отдельно.');
+      } catch (error) {
+        connected = false; updateStatus(); showError(error);
+        setTimeout(initialize, 3000);
+      }
     }
+    renderLog(); updateStatus(); initialize();
+    setInterval(refreshStatus, 2000);
+    window.addEventListener('pagehide', () => source?.close());
   })();
