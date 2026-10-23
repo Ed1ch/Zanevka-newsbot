@@ -860,10 +860,10 @@ def admin_command(path, change=False):
             raise RuntimeError("Имя не должно быть пустым.")
         cfg = {"username": username, "host": "127.0.0.1", "port": 8081, "threads": 12,
                "prefix": "", "external_https": True, "trusted_proxies": [], "session_hours": 8}
-    password = getpass.getpass("Новый пароль (не менее 12 символов): ")
+    password = getpass.getpass("Новый пароль (не менее 5 символов): ")
     confirm = getpass.getpass("Повторите пароль: ")
-    if len(password) < 12 or password != confirm:
-        raise RuntimeError("Пароли должны совпадать и содержать не менее 12 символов.")
+    if len(password) < 5 or password != confirm:
+        raise RuntimeError("Пароли должны совпадать и содержать не менее 5 символов.")
     cfg["password_hash"] = generate_password_hash(password)
     cfg["session_key"] = secrets.token_hex(32)
     atomic_write(path, (json.dumps(cfg, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
