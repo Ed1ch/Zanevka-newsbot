@@ -1,3 +1,8 @@
+if __name__ == "__main__":
+    from prelaunch import main as launch
+    launch()
+    raise SystemExit
+
 import html
 import mimetypes
 import os
@@ -385,7 +390,6 @@ def main(*, defer_if_incomplete=True, delayed_publish_file=None):
     )
     logging_ready = False
     try:
-        log.setup()
         logging_ready = True
         log.block("Process lock получен")
         log.detail("Режим: " + ("первый проход, отсрочка разрешена" if defer_if_incomplete else
@@ -411,13 +415,15 @@ def main(*, defer_if_incomplete=True, delayed_publish_file=None):
         if delayed:
             log.block("ЗАПУСК ЗАВЕРШЁН: ПУБЛИКАЦИЯ ОТЛОЖЕНА", level="WARNING")
             log.detail(f"Писем отложено: {delayed}")
+            log.detail('Для форсированной публикации нажмите кнопку "Запустить сейчас"')
         elif processed or failed or downloads_failed:
             level = "WARNING" if failed or downloads_failed else "OK"
             log.run_finished(level, processed, failed, downloads_failed)
-        elif log.current_path() is not None:
+        elif log.has_problems():
             log.run_finished("WARNING", 0, 0)
         else:
             log.block("Проверка завершена. Новых писем нет.")
+        return not any(summary) and defer_if_incomplete and not log.has_problems()
     except KeyboardInterrupt as error:
         if logging_ready:
             log.problem("Запуск прерван пользователем", error)
@@ -426,11 +432,3 @@ def main(*, defer_if_incomplete=True, delayed_publish_file=None):
         if logging_ready:
             log.problem("Работа остановлена из-за ошибки", error, level="ERROR")
         raise
-    finally:
-        log.close()
-
-
-if __name__ == "__main__":
-    from prelaunch import main as launch
-
-    launch()

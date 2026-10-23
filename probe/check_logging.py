@@ -85,6 +85,10 @@ class LoggingChecks(unittest.TestCase):
         self.stack.enter_context(patch.object(main, "OUTPUT_DIR", str(self.root / "images")))
         self.stack.enter_context(patch.object(main, "IMAP_OUTPUT_DIR", str(self.root / "eml")))
         self.stack.enter_context(patch.object(prelaunch, "LOCK_FILE", self.flags / ".main.lock"))
+        self.stack.enter_context(patch.object(prelaunch, "FLAGS_DIR", self.flags))
+        self.stack.enter_context(patch.object(prelaunch, "RUNNING_FILE", self.flags / ".newsbot.running"))
+        self.stack.enter_context(patch.object(prelaunch, "load_configuration", return_value=config))
+        self.stack.enter_context(patch.object(log, "_FLAGS", self.flags))
         self.stack.enter_context(patch.object(mail, "IMAP_RETRY_DELAY", 0))
         self.stack.enter_context(patch.object(prelaunch, "DELAYED_PUBLISH_FILE", self.flags / "delayed.publish"))
         self.connection = MagicMock()
@@ -142,10 +146,11 @@ class LoggingChecks(unittest.TestCase):
                 for i in range(1, sum(counts) + 1)]))
         return batches
 
-    def test_empty_check_has_no_file_directory_or_ok_summary(self):
+    def test_empty_check_has_one_journal_and_explicit_marker_without_ok_summary(self):
         self.stack.enter_context(patch.object(mail, "search_unseen_news", return_value=[]))
         prelaunch.main()
-        self.assertFalse(self.logs.exists())
+        self.assertIn("Новых писем нет", self.text())
+        self.assertEqual(len(list(self.flags.glob("*.empty.json"))), 1)
         self.assertNotIn("[OK]", self.console.getvalue())
         self.assertIn("Новых писем нет", self.console.getvalue())
 
@@ -163,6 +168,156 @@ class LoggingChecks(unittest.TestCase):
         self.assertFalse(log._logger.handlers)
         path = next(self.logs.glob("*.txt"))
         path.rename(path.with_suffix(".closed"))  # Also checks closed handles on Windows.
+
+    def test_empty_minimum_age_and_bot_owned_cleanup(self):
+        self.stack.enter_context(patch.object(mail, "search_unseen_news", return_value=[]))
+        prelaunch.main()
+        first = next(self.logs.glob("*.txt"))
+        marker = next(self.flags.glob("*.empty.json"))
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        prelaunch.main()
+        self.assertTrue(first.exists())
+        data["completed"] = time.time() - 601
+        marker.write_text(json.dumps(data), encoding="utf-8")
+        prelaunch.main()
+        self.assertFalse(first.exists())
+        self.assertFalse(marker.exists())
+
+    def test_empty_repeat_and_debug_marker_loss_keep_meaningful_logs(self):
+        self.stack.enter_context(patch.object(mail, "search_unseen_news", return_value=[]))
+        prelaunch.DELAYED_PUBLISH_FILE.touch()
+        prelaunch.main()
+        path = next(self.logs.glob("*.txt"))
+        self.assertFalse(prelaunch.DELAYED_PUBLISH_FILE.exists())
+        self.assertFalse(list(self.flags.glob("*.empty.json")))
+        self.assertIn("delayed.publish погашен", path.read_text(encoding="utf-8"))
+        prelaunch.reset_flags()
+        prelaunch.main()
+        self.assertTrue(path.exists())
+
+    def test_locked_empty_file_warns_but_next_run_continues(self):
+        self.stack.enter_context(patch.object(mail, "search_unseen_news", return_value=[]))
+        prelaunch.main()
+        first = next(self.logs.glob("*.txt"))
+        marker = next(self.flags.glob("*.empty.json"))
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        data["completed"] = time.time() - 601
+        marker.write_text(json.dumps(data), encoding="utf-8")
+        original = Path.unlink
+        def unlink(path, *args, **kwargs):
+            if path == first:
+                raise PermissionError("Windows sharing fixture")
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "unlink", unlink):
+            prelaunch.main()
+        self.assertTrue(first.exists())
+        self.assertTrue(marker.exists())
+        prelaunch.main()
+        self.assertFalse(first.exists())
+
+    def test_deferred_summary_exact_hint_and_repeat_no_second_deferral(self):
+        self.prepare_pipeline((1,))
+        self.stack.enter_context(patch.object(main, "check_integrity", return_value={
+            "matches": [], "unmatched_images": ["unmatched.jpg"], "ambiguous_images": {},
+            "documents_without_media": [], "incomplete": True}))
+        self.stack.enter_context(patch.object(main, "mark_email_unseen"))
+        prelaunch.main()
+        text = self.text()
+        self.assertEqual(blocks(text)[-1]["title"], "ЗАПУСК ЗАВЕРШЁН: ПУБЛИКАЦИЯ ОТЛОЖЕНА")
+        self.assertEqual(blocks(text)[-1]["details"][-1], 'Для форсированной публикации нажмите кнопку "Запустить сейчас"')
+        self.assertTrue(prelaunch.DELAYED_PUBLISH_FILE.exists())
+        self.posts.assert_not_called()
+        self.stack.enter_context(patch.object(main, "extract_attachments", return_value={
+            "documents":[{"filename":"документ0.docx"}], "images":[]}))
+        prelaunch.main()
+        self.assertFalse(prelaunch.DELAYED_PUBLISH_FILE.exists())
+        self.posts.assert_called_once()
+
+    def test_batch_cross_mail_snapshot_dedup_and_docx_vk_priority(self):
+        self.prepare_pipeline((1, 1))
+        # Existing main uses one batch download boundary and prepares all EML
+        # before the first publication, with DOCX VK overriding email VK.
+        self.docx_links.return_value = [{"document":"документ0.docx", "url":"https://vk.ru/wall-1_2"}]
+        process_vk = self.stack.enter_context(patch.object(main, "process_vk"))
+        prelaunch.main()
+        self.assertEqual(self.download.call_count, 2)
+        self.assertEqual(self.posts.call_count, 2)
+        self.assertEqual(process_vk.call_args.args[1]["url"], "https://vk.ru/wall-1_2")
+        self.assertTrue(process_vk.call_args.args[2])
+
+    def test_snapshot_all_downloads_before_shared_materials_and_duplicate_warning(self):
+        self.prepare_pipeline((1, 1))
+        candidates = [("25", "ЗГП"), ("26", "ЗГП")]
+        search = self.stack.enter_context(patch.object(mail, "search_unseen_news", side_effect=lambda connection: list(candidates)))
+        original_download = self.download.side_effect
+        reservations = []
+        def download(uid):
+            candidates.append(("99", "late ЗГП"))
+            return original_download(uid)
+        self.download.side_effect = download
+        self.stack.enter_context(patch.object(mail, "reserve_downloaded_email", side_effect=lambda uid, path: reservations.append(uid)))
+        payloads = [
+            {"documents":[{"filename":"shared.docx", "data":b"first"}], "images":[], "text":"mail one", "html":""},
+            {"documents":[{"filename":"SHARED.DOCX", "data":b"duplicate"}], "images":[{"filename":"shared.jpg"}], "text":"mail two", "html":""},
+        ]
+        def extract(path):
+            self.assertEqual(reservations, ["25", "26"])
+            return payloads.pop(0)
+        self.stack.enter_context(patch.object(main, "extract_attachments", side_effect=extract))
+        def build(documents, images):
+            self.assertEqual([d["data"] for d in documents], [b"first"])
+            self.assertEqual([i["filename"] for i in images], ["shared.jpg"])
+            return [{"title":"Shared", "document_filename":"shared.docx", "featured_image":"shared.jpg"}]
+        self.stack.enter_context(patch.object(main, "build_news", side_effect=build))
+        vk = self.stack.enter_context(patch.object(main, "extract_vk_links", return_value=[]))
+        prelaunch.main()
+        self.assertEqual(search.call_count, 1)
+        self.assertEqual([c.args[0] for c in self.download.call_args_list], ["25", "26"])
+        self.assertEqual([c.args[0]["text"] for c in vk.call_args_list], ["mail one", "mail two"])
+        self.assertIn("Дубль вложения пропущен", self.text())
+        self.posts.assert_called_once()
+
+    def test_unseen_all_confirmed_before_delay_marker_and_failure_stops_it(self):
+        self.prepare_pipeline((1, 1))
+        self.stack.enter_context(patch.object(main, "check_integrity", return_value={
+            "matches":[],"unmatched_images":["orphan.jpg"],"ambiguous_images":{},
+            "documents_without_media":[],"incomplete":True}))
+        calls = []
+        def unseen(uid):
+            self.assertFalse(prelaunch.DELAYED_PUBLISH_FILE.exists())
+            calls.append(uid)
+            if uid == "26": raise OSError("UNSEEN not confirmed")
+        self.stack.enter_context(patch.object(main, "mark_email_unseen", side_effect=unseen))
+        with self.assertRaisesRegex(OSError, "UNSEEN not confirmed"):
+            prelaunch.main()
+        self.assertEqual(calls, ["25", "26"])
+        self.assertFalse(prelaunch.DELAYED_PUBLISH_FILE.exists())
+        self.posts.assert_not_called()
+        self.assertNotIn('Для форсированной публикации', self.text())
+
+    def test_default_id_cached_per_batch_and_vk_without_preview_skips_only_item(self):
+        batches = self.prepare_pipeline((2,))
+        for news in batches[0]:
+            news["featured_image"] = None
+            news["gallery_images"] = []
+        self.stack.enter_context(patch.object(main, "get_default_media_id", return_value=77))
+        prelaunch.main()
+        main.get_default_media_id.assert_called_once()
+        for call in self.posts.call_args_list:
+            self.assertEqual(call.args[0]["featured_media_id"], 77)
+            self.assertEqual(call.args[0]["gallery_images"], [])
+
+    def test_vk_without_own_images_needs_preview_no_default_and_next_item_continues(self):
+        batches = self.prepare_pipeline((2,))
+        for news in batches[0]: news["featured_image"] = None
+        self.docx_links.return_value = [{"document":"документ0.docx", "url":"https://vk.ru/wall-1_2"}]
+        default = self.stack.enter_context(patch.object(main, "get_default_media_id", return_value=77))
+        self.stack.enter_context(patch.object(main, "get_vk_video_from_post", return_value={"player":"https://example.invalid/player"}))
+        prelaunch.main()
+        self.posts.assert_called_once()
+        self.assertEqual(self.posts.call_args.args[0]["document_filename"], "документ1.docx")
+        default.assert_called_once()
+        self.assertEqual(blocks(self.text())[-1]["level"], "WARNING")
 
     def test_item_failure_continues_and_produces_warning_summary(self):
         self.prepare_pipeline((2,), [RuntimeError("WP fixture failure"),
@@ -273,7 +428,8 @@ class LoggingChecks(unittest.TestCase):
         with self.assertRaises(OSError):
             prelaunch.main()
         download.assert_not_called()
-        self.assertIn("[ERROR]", self.console.getvalue())
+        # File activation now happens before the pipeline is imported/called;
+        # an unavailable log directory is early stderr, before any mailbox work.
         self.assertFalse(log._logger.handlers)
 
     def test_cleanups_both_run_and_release_lock_on_fatal_error(self):

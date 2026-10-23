@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import importlib
+import json
 import logging
 import math
 from pathlib import Path
@@ -29,6 +30,9 @@ _retention_days = 30
 _max_bytes = 200 * 1024 * 1024
 _secrets = ()
 _archive_broken = False
+_problems = False
+_empty_min_age = 600
+_FLAGS = _ROOT / "flags"
 
 
 class LogWriteError(RuntimeError):
@@ -73,7 +77,7 @@ class _RunFileHandler(logging.FileHandler):
         raise LogWriteError(f"Не удалось записать журнал {self.baseFilename}") from error
 
 
-def setup(*, directory=None, retention_days=None, max_total_mb=None, stream=None):
+def setup(*, directory=None, retention_days=None, max_total_mb=None, stream=None, prune=True):
     """Configure one run without creating a directory or a journal yet.
 
     Relative LOG_DIR is anchored to the project, independently of cron's cwd.
@@ -81,6 +85,7 @@ def setup(*, directory=None, retention_days=None, max_total_mb=None, stream=None
     """
     global _configured, _directory, _retention_days, _max_bytes
     global _file_path, _header, _secrets, _archive_broken
+    global _problems, _empty_min_age
     close()
     config = importlib.import_module("config")
     directory = directory if directory is not None else getattr(config, "LOG_DIR", "logs")
@@ -101,10 +106,61 @@ def setup(*, directory=None, retention_days=None, max_total_mb=None, stream=None
     _file_path = None
     _header = None
     _archive_broken = False
+    _problems = False
+    _empty_min_age = float(getattr(config, "LOG_EMPTY_MIN_AGE_SECONDS", 600))
+    if not math.isfinite(_empty_min_age) or _empty_min_age < 0:
+        raise ValueError("LOG_EMPTY_MIN_AGE_SECONDS должен быть неотрицательным.")
     console = logging.StreamHandler(stream if stream is not None else sys.stdout)
     console.setFormatter(_BlockFormatter())
     _logger.addHandler(console)
     _configured = True
+    if prune:
+        _prune()
+
+
+def has_problems():
+    return _problems or _archive_broken
+
+
+def mark_empty(path):
+    """Only called after a successful close and an explicit empty result."""
+    if path is None or not path.is_file() or path.is_symlink():
+        return
+    try:
+        _FLAGS.mkdir(parents=True, exist_ok=True)
+        stat = path.stat()
+        marker = _FLAGS / (path.name + ".empty.json")
+        marker.write_text(json.dumps({"version": 1, "path": str(path.resolve()),
+                                     "size": stat.st_size, "mtime_ns": stat.st_mtime_ns,
+                                     "completed": time.time()}), encoding="utf-8")
+    except OSError as error:
+        print("Не удалось пометить пустой журнал: " + str(error), file=sys.stderr)
+
+
+def cleanup_empty_journals():
+    """Bot-owned cleanup under the external lock, never called by the API."""
+    if not _FLAGS.is_dir():
+        return
+    for marker in _FLAGS.glob("newsbot_*.txt.empty.json"):
+        if marker.is_symlink() or not marker.is_file():
+            continue
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+            path = _directory / marker.name.removesuffix(".empty.json")
+            if (data.get("version") != 1 or not _NAME.fullmatch(path.name)
+                    or path.is_symlink() or path == _file_path
+                    or data.get("path") != str(path.resolve())):
+                continue
+            if time.time() - data["completed"] < _empty_min_age:
+                continue
+            if path.exists():
+                stat = path.stat()
+                if stat.st_size != data["size"] or stat.st_mtime_ns != data["mtime_ns"]:
+                    continue
+                path.unlink()
+            marker.unlink()
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+            problem("Не удалось очистить пустой журнал", error)
     _prune()
 
 
@@ -127,6 +183,18 @@ def _prune():
         active_bytes = active_path.stat().st_size if active_path and active_path.exists() else 0
         total = sum(stat.st_size for _, stat in files) + active_bytes
         for path, stat in files:
+            # Retention must not defeat the guaranteed minimum reading window
+            # of a valid marked empty check, even with a very small size limit.
+            marker = _FLAGS / (path.name + ".empty.json")
+            if not marker.is_symlink() and marker.is_file():
+                try:
+                    data = json.loads(marker.read_text(encoding="utf-8"))
+                    if (data.get("version") == 1 and data.get("path") == str(path.resolve())
+                            and data.get("size") == stat.st_size and data.get("mtime_ns") == stat.st_mtime_ns
+                            and time.time() - data["completed"] < _empty_min_age):
+                        continue
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    pass
             if stat.st_mtime < cutoff or total > _max_bytes:
                 path.unlink()
                 total -= stat.st_size
@@ -174,10 +242,12 @@ def _record(message, level, detail, exception=None):
 
 def block(title, *, level="INFO", exception=None, persist=True):
     """Start a block. WARNING/ERROR are always standalone, parseable headers."""
-    global _header
+    global _header, _problems
     _ensure_setup()
     if level not in _LEVELS:
         raise ValueError(f"Неизвестный уровень журнала: {level}")
+    if level in ("WARNING", "ERROR"):
+        _problems = True
     if persist and level in ("WARNING", "ERROR") and _file_handler is None and not _archive_broken:
         try:
             activate()
@@ -208,16 +278,20 @@ def problem(message, error, *, level="WARNING"):
 def close():
     """Flush and close handlers. Call after working-file cleanup and the summary."""
     global _file_handler, _configured
+    if _configured:
+        _prune()
+    failure = None
     if _file_handler is not None:
         handler = _file_handler
         _logger.removeHandler(handler)
         _file_handler = None
         try:
-            handler.close()
-        except OSError:
-            pass
-    if _configured:
-        _prune()
+            try:
+                handler.flush()
+            finally:
+                handler.close()
+        except OSError as error:
+            failure = error
     for handler in _logger.handlers[:]:
         _logger.removeHandler(handler)
         try:
@@ -226,6 +300,8 @@ def close():
             pass
     _file_handler = None
     _configured = False
+    if failure is not None:
+        raise LogWriteError("Не удалось закрыть журнал") from failure
 
 
 def email_started(uid, subject, eml_path):
