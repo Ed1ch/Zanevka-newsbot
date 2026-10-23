@@ -4,23 +4,20 @@ import os
 from pathlib import Path
 
 
-DELAYED_PUBLISH_FILE = Path(__file__).resolve().with_name("delayed.publish")
-
-
-LOCK_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    ".main.lock",
-)
+FLAGS_DIR = Path(__file__).resolve().parent / "flags"
+DELAYED_PUBLISH_FILE = FLAGS_DIR / "delayed.publish"
+LOCK_FILE = FLAGS_DIR / ".main.lock"
 
 
 def acquire_process_lock():
     """
     Захватывает системный lock для единственного экземпляра main.py.
 
-    Сам файл .main.lock может оставаться на диске после завершения.
+    Сам файл flags/.main.lock может оставаться на диске после завершения.
     Важен не факт его существования, а системная блокировка файла,
     которая автоматически освобождается ОС при завершении процесса.
     """
+    Path(LOCK_FILE).parent.mkdir(parents=True, exist_ok=True)
     lock_file = open(
         LOCK_FILE,
         "a+",

@@ -381,7 +381,7 @@ def run_pipeline(*, defer_if_incomplete, delayed_publish_file):
 def main(*, defer_if_incomplete=True, delayed_publish_file=None):
     """Internal pipeline entry; external callers use prelaunch.main()."""
     delayed_publish_file = Path(delayed_publish_file) if delayed_publish_file is not None else (
-        Path(__file__).resolve().with_name("delayed.publish")
+        Path(__file__).resolve().parent / "flags" / "delayed.publish"
     )
     logging_ready = False
     try:

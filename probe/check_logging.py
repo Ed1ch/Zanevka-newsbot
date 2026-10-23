@@ -74,6 +74,8 @@ class LoggingChecks(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.addCleanup(log.close)
         self.root = Path(self.temp.name)
+        self.flags = self.root / "flags"
+        self.flags.mkdir()
         self.logs = self.root / "journals"
         self.console = io.StringIO()
         self.stack.enter_context(patch("sys.stdout", self.console))
@@ -82,9 +84,9 @@ class LoggingChecks(unittest.TestCase):
         self.stack.enter_context(patch.object(config, "LOG_MAX_TOTAL_MB", 200))
         self.stack.enter_context(patch.object(main, "OUTPUT_DIR", str(self.root / "images")))
         self.stack.enter_context(patch.object(main, "IMAP_OUTPUT_DIR", str(self.root / "eml")))
-        self.stack.enter_context(patch.object(prelaunch, "LOCK_FILE", str(self.root / "main.lock")))
+        self.stack.enter_context(patch.object(prelaunch, "LOCK_FILE", self.flags / ".main.lock"))
         self.stack.enter_context(patch.object(mail, "IMAP_RETRY_DELAY", 0))
-        self.stack.enter_context(patch.object(prelaunch, "DELAYED_PUBLISH_FILE", self.root / "delayed.publish"))
+        self.stack.enter_context(patch.object(prelaunch, "DELAYED_PUBLISH_FILE", self.flags / "delayed.publish"))
         self.connection = MagicMock()
         self.connection.uid.side_effect = lambda *args: (
             ("OK", [b"25 (FLAGS (\\Seen))"]) if args[0] == "fetch" else ("OK", [])
