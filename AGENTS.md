@@ -34,6 +34,36 @@ Project context is maintained in `gpt_context/`:
 - `webui/README.md` — current UI structure and behavior.
 - `webui/AGENTS.md` — additional rules for work inside `webui/`.
 
+## Project scale and engineering principles
+
+Zanevka Newsbot is a small, internal administrative application, not a commercial SaaS product.
+
+### Scale and deployment
+
+- Expected users: approximately 3 trusted administrators.
+- Expected deployment: one application instance on a single office server.
+- Workload: small, periodic batches of incoming news, typically processed every 2 hours.
+- The application is not designed for public registration, multi-tenancy, high traffic, or horizontal scaling.
+- The primary goal is a reliable, complete, maintainable tool that its administrators can understand and support.
+
+### Engineering principles
+
+1. **Prefer the simplest solution that satisfies the actual requirements.** Complexity must be justified by a concrete problem, not hypothetical future growth.
+2. Reuse existing modules, Python standard-library capabilities, and established project dependencies before introducing new technologies.
+3. Do not introduce microservices, message brokers, distributed task queues, external caches, databases, container orchestration, or heavyweight frontend frameworks unless a specific requirement clearly justifies them and the user approves the architectural change.
+4. Prefer local files and existing application mechanisms when they are sufficient, while preserving atomicity, concurrency safety, and data integrity.
+5. Avoid premature optimization, speculative scalability, unnecessary abstractions, and infrastructure intended for large organizations.
+6. Keep deployment, configuration, debugging, recovery, and maintenance understandable for a small administrator team.
+7. A new dependency or infrastructure component must provide a clear benefit that outweighs its installation and maintenance costs.
+8. **Simplicity must not compromise correctness, security, data integrity, error recovery, or testability.**
+9. Before proposing a substantial architectural addition, explain the concrete problem it solves, why the existing design is insufficient, and its operational costs. Obtain user approval before implementing it.
+
+### Definition of success
+
+The project succeeds when the agreed functionality works reliably in the target environment, can be verified with practical tests, and remains maintainable without dedicated development or DevOps personnel.
+
+Do not optimize for enterprise-scale benchmarks, architectural sophistication, or technology adoption as goals in themselves.
+
 ## Source of truth
 
 For implementation details, use this priority:
