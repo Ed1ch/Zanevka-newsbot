@@ -17,7 +17,7 @@ logging.addLevelName(OK, "OK")
 _LEVELS = {"INFO": logging.INFO, "OK": OK,
            "WARNING": logging.WARNING, "ERROR": logging.ERROR}
 _ROOT = Path(__file__).resolve().parent
-_NAME = re.compile(r"newsbot_\d{8}_\d{6}_\d{6}_[0-9a-f]{12}\.txt\Z")
+_NAME = re.compile(r"\d{8}_\d{6}_[0-9a-f]{6}\.txt\Z")
 _logger = logging.getLogger("newsbot.run")
 _logger.setLevel(logging.INFO)
 _logger.propagate = False
@@ -124,7 +124,8 @@ def has_problems():
 
 def mark_empty(path):
     """Only called after a successful close and an explicit empty result."""
-    if path is None or not path.is_file() or path.is_symlink():
+    if (path is None or not _NAME.fullmatch(path.name)
+            or not path.is_file() or path.is_symlink()):
         return
     try:
         _FLAGS.mkdir(parents=True, exist_ok=True)
@@ -141,7 +142,7 @@ def cleanup_empty_journals():
     """Bot-owned cleanup under the external lock, never called by the API."""
     if not _FLAGS.is_dir():
         return
-    for marker in _FLAGS.glob("newsbot_*.txt.empty.json"):
+    for marker in _FLAGS.glob("????????_??????_??????.txt.empty.json"):
         if marker.is_symlink() or not marker.is_file():
             continue
         try:
@@ -217,7 +218,7 @@ def activate():
     if _archive_broken:
         raise OSError("Запись журнала этого запуска уже завершилась ошибкой.")
     _directory.mkdir(parents=True, exist_ok=True)
-    name = f"newsbot_{datetime.now():%Y%m%d_%H%M%S_%f}_{uuid4().hex[:12]}.txt"
+    name = f"{datetime.now():%d%m%Y_%H%M%S}_{uuid4().hex[:6]}.txt"
     path = _directory / name
     handler = _RunFileHandler(path, mode="x", encoding="utf-8", errors="backslashreplace")
     handler.setFormatter(_BlockFormatter())

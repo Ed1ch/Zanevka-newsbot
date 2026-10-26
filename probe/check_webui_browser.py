@@ -6,6 +6,7 @@ is added to production. Never point this diagnostic at a live newsbot instance.
 import argparse
 import json
 from pathlib import Path
+import re
 import time
 from playwright.sync_api import sync_playwright
 
@@ -48,6 +49,10 @@ def main():
         second.wait_for_function("document.getElementById('run-now').disabled")
         page.get_by_text('OFFLINE BROWSER RUN', exact=True).wait_for()
         journal = sorted((args.fixture_root / 'logs').glob('*.txt'))[-1]
+        assert re.fullmatch(r"\d{8}_\d{6}_[0-9a-f]{6}\.txt", journal.name), journal.name
+        for panel in (page, second):
+            panel.locator('#log-records .file-name').filter(
+                has_text=re.compile('^' + re.escape(journal.name) + '$')).first.wait_for()
         token = 'BROWSER LATENCY ' + str(time.monotonic_ns())
         started = time.monotonic()
         with journal.open('ab') as stream:

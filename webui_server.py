@@ -42,7 +42,7 @@ TEXT_FIELDS = {"IMAP_HOST", "IMAP_USERNAME", "IMAP_MAILBOX", "IMAP_TRASH", "IMAP
                "IMAP_OUTPUT_DIR", "WP_URL", "WP_USERNAME", "POST_STATUS", "GALLERY_SIZE",
                "VK_API_VERSION"} | SECRET_FIELDS
 SETTING_FIELDS = TEXT_FIELDS | INTEGER_FIELDS.keys()
-JOURNAL_NAME = re.compile(r"newsbot_\d{8}_\d{6}_\d{6}_[0-9a-f]{12}\.txt\Z")
+JOURNAL_NAME = re.compile(r"\d{8}_\d{6}_[0-9a-f]{6}\.txt\Z")
 HEADER = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) \[(INFO|OK|WARNING|ERROR)\] ")
 
 
@@ -242,6 +242,11 @@ class ProxyBoundary:
         return (self.forwarded if trusted else self.app)(environ, start_response)
 
 
+def _journal_order(name):
+    # DDMMYYYY is not lexically chronological; the suffix breaks same-second ties.
+    return name[4:8], name[2:4], name[:2], name[9:15], name[16:22]
+
+
 class LogHub:
     """One file reader, byte offsets, bounded replay and per-client queues."""
     def __init__(self, directory, status):
@@ -300,7 +305,7 @@ class LogHub:
         entries = [] if stamp is None else [path for path in self.directory.iterdir()
             if JOURNAL_NAME.fullmatch(path.name) and not path.is_symlink() and path.is_file()]
         self.directory_stamp = stamp
-        entries.sort(key=lambda path: path.name)
+        entries.sort(key=lambda path: _journal_order(path.name))
         names = {path.name for path in entries[-10:]}
         removed = set(self.files) - names
         if removed:
@@ -387,8 +392,8 @@ class LogHub:
 
     def snapshot(self):
         with self.lock:
-            ordered = sorted(self.lines, key=lambda line: (line["file"], int(line["identity"].rsplit(":", 1)[1])))
-            return {"files": sorted(self.files), "lines": ordered,
+            ordered = sorted(self.lines, key=lambda line: (_journal_order(line["file"]), int(line["identity"].rsplit(":", 1)[1])))
+            return {"files": sorted(self.files, key=_journal_order), "lines": ordered,
                     "cursor": self.cursor(), "truncated": self.truncated}
 
     def subscribe(self, cursor):

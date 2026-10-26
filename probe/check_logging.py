@@ -6,6 +6,7 @@ either way. Production still uses the dependencies in requirements.txt.
 """
 
 from contextlib import ExitStack
+from datetime import datetime
 import importlib.util
 import io
 import json
@@ -18,6 +19,7 @@ import time
 import types
 import unittest
 from unittest.mock import MagicMock, patch
+from uuid import UUID
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,6 +103,7 @@ class LoggingChecks(unittest.TestCase):
     def text(self):
         paths = list(self.logs.glob("*.txt"))
         self.assertEqual(len(paths), 1)
+        self.assertRegex(paths[0].name, r"^\d{8}_\d{6}_[0-9a-f]{6}\.txt\Z")
         text = paths[0].read_text(encoding="utf-8")
         self.assertTrue(text.endswith("\n"))
         blocks(text)
@@ -214,6 +217,43 @@ class LoggingChecks(unittest.TestCase):
         self.assertTrue(marker.exists())
         prelaunch.main()
         self.assertFalse(first.exists())
+
+    def test_empty_marker_requires_journal_name_and_matching_metadata(self):
+        log.setup()
+        path = log.activate()
+        log.block("Пустая проверка")
+        log.close()
+        unrelated = self.logs / "important.txt"
+        unrelated.write_text("keep", encoding="utf-8")
+        log.mark_empty(unrelated)
+        self.assertFalse((self.flags / (unrelated.name + ".empty.json")).exists())
+        log.mark_empty(path)
+        marker = self.flags / (path.name + ".empty.json")
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        data["completed"] = time.time() - 601
+        # Even a well-formed marker cannot remove the current journal.
+        marker.write_text(json.dumps(data), encoding="utf-8")
+        log.cleanup_empty_journals()
+        self.assertTrue(path.exists())
+        self.assertTrue(marker.exists())
+        with patch.object(log, "_file_path", None):
+            for field, invalid in (("size", data["size"] + 1),
+                                   ("mtime_ns", data["mtime_ns"] + 1),
+                                   ("path", str(unrelated.resolve()))):
+                with self.subTest(field=field):
+                    marker.write_text(json.dumps(dict(data, **{field: invalid})), encoding="utf-8")
+                    log.cleanup_empty_journals()
+                    self.assertTrue(path.exists())
+                    self.assertTrue(marker.exists())
+            unrelated_marker = self.flags / (unrelated.name + ".empty.json")
+            unrelated_marker.write_text(json.dumps(dict(data, path=str(unrelated.resolve()))), encoding="utf-8")
+            log.cleanup_empty_journals()
+            self.assertTrue(unrelated.exists())
+            self.assertTrue(unrelated_marker.exists())
+            marker.write_text(json.dumps(data), encoding="utf-8")
+            log.cleanup_empty_journals()
+        self.assertFalse(path.exists())
+        self.assertFalse(marker.exists())
 
     def test_deferred_summary_exact_hint_and_repeat_no_second_deferral(self):
         self.prepare_pipeline((1,))
@@ -494,7 +534,22 @@ class LoggingChecks(unittest.TestCase):
             for name, value in old.items():
                 setattr(config, name, value)
 
+    def test_journal_name_uses_creation_time_and_first_six_uuid_hex_characters(self):
+        with patch.object(log, "datetime") as clock, patch.object(log, "uuid4", return_value=UUID(
+                "a7f2c900-1234-4abc-89ab-0123456789ab")):
+            clock.now.return_value = datetime(2026, 10, 26, 13, 20, 15, 123456)
+            log.setup()
+            path = log.activate()
+        self.assertEqual(path.name, "26102026_132015_a7f2c9.txt")
+        self.assertIsNotNone(log._NAME.fullmatch(path.name))
+        for invalid in ("26102026_132015_a7f2c.txt", "26102026_132015_A7F2C9.txt",
+                        "26102026_132015_a7f2c9.txt.bak", "26102026_132015_a7f2c9.txt\n"):
+            with self.subTest(name=invalid):
+                self.assertIsNone(log._NAME.fullmatch(invalid))
+
     def test_unique_files_and_repeated_setup_do_not_duplicate_handlers(self):
+        clock = self.stack.enter_context(patch.object(log, "datetime", wraps=datetime))
+        clock.now.return_value = datetime(2026, 10, 26, 13, 20, 15)
         log.setup()
         log.block("Первый")
         first = log.activate()
@@ -504,12 +559,14 @@ class LoggingChecks(unittest.TestCase):
         second = log.activate()
         log.detail("Другая строка")
         self.assertNotEqual(first, second)
+        for path in (first, second):
+            self.assertRegex(path.name, r"^\d{8}_\d{6}_[0-9a-f]{6}\.txt\Z")
         self.assertEqual(first.read_text(encoding="utf-8").count("Одна строка"), 1)
         self.assertEqual(second.read_text(encoding="utf-8").count("Другая строка"), 1)
 
     def test_age_size_retention_and_unrelated_file_protection(self):
         self.logs.mkdir()
-        names = [f"newsbot_20260101_000000_000000_{i:012x}.txt" for i in range(4)]
+        names = [f"01012026_000000_{i:06x}.txt" for i in range(4)]
         paths = [self.logs / name for name in names]
         for i, path in enumerate(paths):
             path.write_bytes(b"x" * 400)

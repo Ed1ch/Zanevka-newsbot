@@ -268,7 +268,50 @@ class ReaderChecks(unittest.TestCase):
 
     def journal(self, number=0):
         self.hub.directory.mkdir(exist_ok=True)
-        return self.hub.directory / f"newsbot_20261023_120000_000000_{number:012x}.txt"
+        return self.hub.directory / f"23102026_120000_{number:06x}.txt"
+
+    def test_journal_name_pattern_and_unrelated_files(self):
+        self.assertIsNotNone(api.JOURNAL_NAME.fullmatch(self.journal().name))
+        self.assertIsNone(api.JOURNAL_NAME.fullmatch("23102026_120000_abcdef.txt\n"))
+        for name in ("notes.txt", "23102026_120000_abcdef0.txt",
+                     "23102026_120000_ABCDE0.txt", "23102026_120000_abcdef.txt.bak"):
+            with self.subTest(name=name):
+                self.assertIsNone(api.JOURNAL_NAME.fullmatch(name))
+                (self.hub.directory / name).write_text("keep\n", encoding="utf-8")
+        self.hub.poll()
+        self.assertEqual(self.hub.snapshot()["files"], [])
+
+    def test_chronological_latest_ten_across_months_years_and_same_second(self):
+        names = [
+            "31012025_235959_ffffff.txt",
+            "01022025_000000_000001.txt",
+            "30112025_235959_ffffff.txt",
+            "01122025_000000_000001.txt",
+            "31122025_235959_ffffff.txt",
+            "01012026_000000_000001.txt",
+            "31012026_235959_ffffff.txt",
+            "01022026_000000_000001.txt",
+            "31122026_235959_ffffff.txt",
+            "01012027_000000_000001.txt",
+            "01012027_000000_abcdef.txt",
+            "01012027_000001_000001.txt",
+        ]
+        self.hub.directory.mkdir()
+        # Creation order and mtimes deliberately disagree with journal dates.
+        for index, name in reversed(list(enumerate(names))):
+            path = self.hub.directory / name
+            path.write_text(f"2026-10-23 12:00:00 [INFO] {name}\n\tdetail\n", encoding="utf-8")
+            os.utime(path, (100000 - index, 100000 - index))
+        self.hub.poll()
+        snapshot = self.hub.snapshot()
+        expected = names[-10:]
+        self.assertEqual(snapshot["files"], expected)
+        self.assertEqual([line["file"] for line in snapshot["lines"]],
+                         [name for name in expected for _ in range(2)])
+        self.assertEqual([line["type"] for line in snapshot["lines"]],
+                         [kind for _ in expected for kind in ("header", "detail")])
+        self.hub.poll()
+        self.assertEqual(self.hub.snapshot(), snapshot)
 
     def test_missing_directory_latest_ten_and_stable_identity_after_restart(self):
         self.hub.poll()
