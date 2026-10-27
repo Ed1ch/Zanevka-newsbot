@@ -47,30 +47,32 @@ def main():
         page.locator('#run-now').click()
         assert page.locator('#run-now').is_disabled()
         second.wait_for_function("document.getElementById('run-now').disabled")
-        page.get_by_text('OFFLINE BROWSER RUN', exact=True).wait_for()
+        page.locator('#log-records .message').filter(has_text='OFFLINE BROWSER RUN').wait_for()
         journal = sorted((args.fixture_root / 'logs').glob('*.txt'))[-1]
         assert re.fullmatch(r"\d{8}_\d{6}_[0-9a-f]{6}\.txt", journal.name), journal.name
         for panel in (page, second):
             panel.locator('#log-records .file-name').filter(
                 has_text=re.compile('^' + re.escape(journal.name) + '$')).first.wait_for()
+        # Append only after the fixture writer closes its exclusive-mode file;
+        # concurrent external writes can otherwise be overwritten by that writer.
+        page.locator('#log-records .message').filter(has_text='OFFLINE COMPLETE').wait_for()
+        page.wait_for_function("!document.getElementById('run-now').disabled")
         token = 'BROWSER LATENCY ' + str(time.monotonic_ns())
         started = time.monotonic()
         with journal.open('ab') as stream:
             stream.write(('\t' + token + '\n').encode())
             stream.flush()
-        page.get_by_text('\t' + token, exact=True).wait_for(timeout=2000)
+        page.locator('#log-records .message').filter(has_text=token).wait_for(timeout=2000)
         latency = time.monotonic() - started
-        page.get_by_text('OFFLINE COMPLETE', exact=True).wait_for()
-        page.wait_for_function("!document.getElementById('run-now').disabled")
         assert page.evaluate('window.injected') is None
         assert page.locator('#log-records script').count() == 0
         with journal.open('ab') as stream:
             stream.write(('\t' + '\n\t'.join('scroll fixture ' + str(i) for i in range(120)) + '\n').encode())
-        page.get_by_text('scroll fixture 119', exact=True).wait_for()
+        page.locator('#log-records .message').filter(has_text='scroll fixture 119').wait_for()
         page.locator('#log-records').dispatch_event('wheel', {'deltaY':-100})
         page.locator('#log-records').evaluate('e => e.scrollTop = 0')
         with journal.open('ab') as stream: stream.write(b'\tMANUAL SCROLL RETAINED\n')
-        page.get_by_text('MANUAL SCROLL RETAINED',exact=True).wait_for()
+        page.locator('#log-records .message').filter(has_text='MANUAL SCROLL RETAINED').wait_for()
         assert page.locator('#log-records').evaluate('e => e.scrollTop') == 0
         # UI controls retain their existing behavior and DOM.
         page.locator('#tab-mail').click()

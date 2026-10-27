@@ -43,7 +43,7 @@
       const last = logTail.previousElementSibling;
       if (!last || !last.classList.contains('log-row')) return;
       const bottomPadding = parseFloat(getComputedStyle(output).paddingBottom);
-      output.scrollTop += last.getBoundingClientRect().bottom - output.getBoundingClientRect().bottom + bottomPadding;
+      output.scrollTop += (last.getBoundingClientRect().bottom - output.getBoundingClientRect().bottom) / getPageScale() + bottomPadding;
     }
 
     function setLogFollowing(value) {
@@ -56,7 +56,30 @@
 
     function renderLog() {
       const filter = $('log-filter').value;
-      const visible = records.filter(record => filter === 'all' || record.level === filter);
+      // Keep physical lines (and the delivery ledger) independent of presentation.
+      // A UI event can arrive between a header and its later SSE details.
+      const blocks = [], byBlock = new Map();
+      for (const record of records) {
+        if (!record.identity) { blocks.push(record); continue; }
+        const key = JSON.stringify([record.session, record.generation, record.block]);
+        let block = byBlock.get(key);
+        if (!block) {
+          block = { ...record, lines: [] };
+          byBlock.set(key, block); blocks.push(block);
+        }
+        block.lines.push(record.message);
+      }
+      const visible = blocks.filter(record => {
+        if (record.lines) {
+          // Blank separators stay in rawText/export, without doubling CSS gaps.
+          let start = 0, end = record.lines.length;
+          while (start < end && record.lines[start] === '') start++;
+          while (end > start && record.lines[end - 1] === '') end--;
+          if (start === end) return false;
+          record.message = record.lines.slice(start, end).join('\n');
+        }
+        return filter === 'all' || record.level === filter;
+      });
       output.replaceChildren();
       if (!visible.length) {
         const empty = document.createElement('div');
@@ -80,7 +103,9 @@
           heading.append(label, rule); output.append(heading); currentSession = session;
         }
         const row = document.createElement('div'); row.className = 'log-row ' + record.level + (record.emphasis ? ' emphasis' : '');
-        for (const [className, text] of [['time', record.continuation ? '' : record.time], ['level', record.continuation ? '' : (record.rawLevel || levelLabels[record.level])], ['message', record.message]]) {
+        const stamp = record.time.match(/^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)$/);
+        const time = stamp ? stamp[2] + '\n' + stamp[1] : record.time + '\n' + (record.date || '');
+        for (const [className, text] of [['time', time], ['level', record.rawLevel || levelLabels[record.level]], ['message', record.message]]) {
           const span = document.createElement('span');
           span.className = className;
           span.textContent = text;
@@ -100,7 +125,9 @@
 
     function currentStamp() {
       // Only local UI actions use browser time; bot lines always carry server time.
-      return { session: 'WebUI', time: new Date().toLocaleTimeString('ru-RU') };
+      const now = new Date(), pad = value => String(value).padStart(2, '0');
+      return { session: 'WebUI', time: [now.getHours(), now.getMinutes(), now.getSeconds()].map(pad).join(':'),
+        date: now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) };
     }
 
     let renderQueued = false;
@@ -112,11 +139,10 @@
     }
 
     function appendRecord(record, defer = false) {
-      records.push({ ...currentStamp(), ...record });
+      records.push(record);
       if (records.length > 10000) records.splice(0, records.length - 10000);
       if (!defer) { paintRecords(); return; }
-      // History and bursts of SSE lines share one paint, without changing DOM
-      // structure or making ten thousand full renders for one history response.
+      // History and bursts of SSE lines share one paint.
       if (!renderQueued) {
         renderQueued = true;
         requestAnimationFrame(() => { renderQueued = false; paintRecords(); });
@@ -124,7 +150,7 @@
     }
 
     function uiLog(message, level = 'info', undo = false) {
-      appendRecord({ level, message: '[UI] ' + message, undo });
+      appendRecord({ ...currentStamp(), level, message: '[UI] ' + message, undo });
     }
 
     // Any deliberate manual navigation pauses following until the user resumes it.
@@ -167,7 +193,6 @@
       $('settings-description').textContent = panel.dataset.description;
       if (changed) $('settings-scroll').scrollTop = 0;
       if (collapsed) togglePanel();
-      if (changed) uiLog('Открыта вкладка «' + tabs.find(tab => tab.dataset.tab === name).textContent.trim() + '».');
     }
 
     function togglePanel() {
@@ -194,7 +219,6 @@
         settings.removeAttribute('aria-labelledby');
         if (returnFocus) tabs.find(tab => tab.dataset.tab === activeTab).focus();
       }
-      uiLog(collapsed ? 'Панель настроек свёрнута.' : 'Панель настроек открыта.');
     }
 
     function getPageScale() {
@@ -332,8 +356,7 @@
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
     $('log-filter').addEventListener('change', () => {
-      renderLog();
-      uiLog('Фильтр лога: «' + $('log-filter').selectedOptions[0].textContent + '».');
+      paintRecords();
     });
 
     function initCustomLogFilter() {
@@ -453,14 +476,21 @@
         credentials: 'same-origin', ...options,
         headers: {'Content-Type':'application/json', 'X-CSRF-Token':csrfToken, ...options.headers}
       });
-      if (response.status === 401) { loginRedirect(); throw new Error('Требуется вход.'); }
+      if (response.status === 401) {
+        loginRedirect(); throw Object.assign(new Error('Требуется вход.'), { uiNotice: true });
+      }
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error?.message || 'Ошибка API.');
+      if (!response.ok) {
+        const message = result.error?.message;
+        throw Object.assign(new Error(message || 'Ошибка API.'), { uiNotice: !message });
+      }
       return result;
     }
 
     function showError(error) {
-      uiLog(error.message || 'Потеряна связь с API.', 'error');
+      // Own API/browser messages stay on the exception, outside the UI journal.
+      // Explicit service notices and genuinely missing messages keep their fallback.
+      if (error?.uiNotice || !error?.message) uiLog(error?.message || 'Потеряна связь с API.', 'error');
     }
 
     $('schedule-toggle').addEventListener('click', async () => {
@@ -498,9 +528,9 @@
       if (delivered.size > 1024) delivered.delete(delivered.keys().next().value);
       const level = {INFO:'info',OK:'success',WARNING:'warning',ERROR:'error'}[line.level] || 'info';
       const header = line.type === 'header';
-      const message = header ? line.text.replace(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \[(INFO|OK|WARNING|ERROR)\] /, '') : line.text;
+      const message = header ? line.text.replace(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \[(INFO|OK|WARNING|ERROR)\] /, '') : line.text.replace(/^\t/, '');
       appendRecord({session:line.file,time:line.time || '',level,rawLevel:line.level,
-        rawText:line.text,message,continuation:!header}, true);
+        identity:line.identity,generation,block:line.block,type:line.type,rawText:line.text,message}, true);
     }
 
     function connectEvents() {
@@ -543,7 +573,7 @@
       const next = Math.max(60, Math.min(200, value));
       if (next === logScale) return;
       logScale = next; output.style.setProperty('--log-scale', String(next / 100));
-      $('log-scale').textContent = next + '%'; uiLog('Масштаб текста лога: ' + next + '%.');
+      $('log-scale').textContent = next + '%'; paintRecords();
     }
 	$('reset-log-scale').addEventListener('click', () => {
 	  setLogScale(100);
@@ -604,14 +634,13 @@
     document.querySelectorAll('.secret-toggle').forEach(button => {
       button.addEventListener('click', () => {
         setSecretVisibility(button, button.previousElementSibling.type === 'password');
-        uiLog(button.getAttribute('aria-pressed') === 'true' ? 'Секретное поле показано.' : 'Секретное поле скрыто.');
       });
     });
     form.addEventListener('input', event => {
       if (event.target.matches('input, select')) {
         event.target.removeAttribute('aria-invalid');
         if (!dirtyTabs.has(activeTab)) {
-          dirtyTabs.add(activeTab); configStatus('Есть несохранённые изменения во вкладке «' + tabs.find(tab => tab.dataset.tab === activeTab).textContent.trim() + '».');
+          dirtyTabs.add(activeTab);
         }
         updateSchedule();
       }
@@ -623,7 +652,7 @@
       if (invalid) {
         const panel = invalid.closest('[role="tabpanel"]'); switchTab(panel.id.replace('panel-', ''));
         invalid.setAttribute('aria-invalid', 'true'); invalid.focus();
-        configStatus('Проверь поле «' + invalid.name + '».', 'error'); return;
+        return;
       }
       const values = {};
       for (const input of workInputs) {
