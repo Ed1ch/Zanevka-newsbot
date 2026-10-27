@@ -27,6 +27,10 @@
     const logTail = document.createElement('div');
     logTail.className = 'log-scroll-tail';
     logTail.setAttribute('aria-hidden', 'true');
+    const restoreControl = document.createElement('button');
+    restoreControl.type = 'button'; restoreControl.className = 'inline-undo';
+    restoreControl.textContent = 'Вернуть записи';
+    restoreControl.addEventListener('click', restoreLog);
     let followLog = true;
 
     // The invisible tail allows the last message to reach the top of the viewport.
@@ -43,7 +47,8 @@
       const last = logTail.previousElementSibling;
       if (!last || !last.classList.contains('log-row')) return;
       const bottomPadding = parseFloat(getComputedStyle(output).paddingBottom);
-      output.scrollTop += last.getBoundingClientRect().bottom - output.getBoundingClientRect().bottom + bottomPadding;
+      // Rectangles include the page zoom; scrollTop and padding use CSS pixels.
+      output.scrollTop += (last.getBoundingClientRect().bottom - output.getBoundingClientRect().bottom) / getPageScale() + bottomPadding;
     }
 
     function setLogFollowing(value) {
@@ -54,20 +59,41 @@
       }
     }
 
+    // Keep physical records (including blanks) for export, limits and delivery.
+    // Group only the presentation, so UI actions cannot interrupt a bot block.
+    function logBlocks() {
+      const blocks = [], byBlock = new Map();
+      for (const record of records) {
+        if (!record.identity) { blocks.push(record); continue; }
+        const key = JSON.stringify([record.session, record.generation, record.block]);
+        let block = byBlock.get(key);
+        if (!block) {
+          block = { ...record, parts: [] };
+          byBlock.set(key, block); blocks.push(block);
+        }
+        block.parts.push(record.message);
+      }
+      return blocks.flatMap(block => {
+        if (!block.parts) return [block];
+        let start = 0, end = block.parts.length;
+        // File separators add no visual rows; internal blank lines remain.
+        while (start < end && block.parts[start] === '') start++;
+        while (end > start && block.parts[end - 1] === '') end--;
+        return start === end ? [] : [{ ...block, message: block.parts.slice(start, end).join('\n') }];
+      });
+    }
+
     function renderLog() {
       const filter = $('log-filter').value;
-      const visible = records.filter(record => filter === 'all' || record.level === filter);
+      const visible = logBlocks().filter(record => filter === 'all' || record.level === filter);
       output.replaceChildren();
+      if (removedRecords) output.append(restoreControl);
       if (!visible.length) {
         const empty = document.createElement('div');
         empty.className = 'log-empty';
         empty.innerHTML = '<svg aria-hidden="true"><use href="#i-log"/></svg><strong></strong><span></span>';
         empty.querySelector('strong').textContent = records.length ? 'Сообщений этого уровня нет' : 'Лог очищен';
         empty.querySelector('span').textContent = records.length ? 'Выбери «Все сообщения», чтобы увидеть весь журнал.' : 'Новые сообщения появятся здесь при следующем запуске.';
-        if (!records.length && removedRecords) {
-          const undo = document.createElement('button');
-          undo.type = 'button'; undo.className = 'inline-undo'; undo.textContent = 'Вернуть записи'; undo.addEventListener('click', restoreLog); empty.append(undo);
-        }
         output.append(empty); return;
       }
       let currentSession = '';
@@ -80,17 +106,12 @@
           heading.append(label, rule); output.append(heading); currentSession = session;
         }
         const row = document.createElement('div'); row.className = 'log-row ' + record.level + (record.emphasis ? ' emphasis' : '');
-        for (const [className, text] of [['time', record.continuation ? '' : record.time], ['level', record.continuation ? '' : (record.rawLevel || levelLabels[record.level])], ['message', record.message]]) {
+        for (const [className, text] of [['time', record.time + '\n' + record.date], ['level', record.rawLevel || levelLabels[record.level]], ['message', record.message]]) {
           const span = document.createElement('span');
           span.className = className;
           span.textContent = text;
 
           row.append(span);
-        }
-        if (record.undo && removedRecords) {
-          const undo = document.createElement('button');
-          undo.type = 'button'; undo.className = 'inline-undo'; undo.textContent = 'Вернуть записи';
-          undo.addEventListener('click', restoreLog); row.lastChild.append(undo);
         }
         output.append(row);
       });
@@ -100,7 +121,10 @@
 
     function currentStamp() {
       // Only local UI actions use browser time; bot lines always carry server time.
-      return { session: 'WebUI', time: new Date().toLocaleTimeString('ru-RU') };
+      const now = new Date(), pad = value => String(value).padStart(2, '0');
+      return { session: 'WebUI',
+        time: [now.getHours(), now.getMinutes(), now.getSeconds()].map(pad).join(':'),
+        date: [now.getFullYear(), pad(now.getMonth() + 1), pad(now.getDate())].join('-') };
     }
 
     let renderQueued = false;
@@ -112,7 +136,7 @@
     }
 
     function appendRecord(record, defer = false) {
-      records.push({ ...currentStamp(), ...record });
+      records.push(record);
       if (records.length > 10000) records.splice(0, records.length - 10000);
       if (!defer) { paintRecords(); return; }
       // History and bursts of SSE lines share one paint, without changing DOM
@@ -123,8 +147,8 @@
       }
     }
 
-    function uiLog(message, level = 'info', undo = false) {
-      appendRecord({ level, message: '[UI] ' + message, undo });
+    function uiLog(message, level = 'info') {
+      appendRecord({ ...currentStamp(), level, message: '[UI] ' + message });
     }
 
     // Any deliberate manual navigation pauses following until the user resumes it.
@@ -149,8 +173,8 @@
 
     function restoreLog() {
       if (!removedRecords) return;
-      records = [...removedRecords, ...records.filter(record => !record.undo)];
-      removedRecords = null; renderLog(); uiLog('Записи лога восстановлены.');
+      records = [...removedRecords, ...records].slice(-10000);
+      removedRecords = null; paintRecords();
     }
 
     function switchTab(name, focus = false) {
@@ -321,11 +345,10 @@
     }
 
     $('clear-log').addEventListener('click', () => {
-      if (!records.length || records.every(record => record.undo)) { uiLog('Лог уже пуст.'); return; }
-      removedRecords = records; records = []; uiLog('Лог очищен.', 'info', true);
+      if (!records.length) return;
+      removedRecords = records; records = []; paintRecords();
     });
     $('download-log').addEventListener('click', () => {
-      uiLog('Журнал подготовлен к загрузке.');
       const text = records.map(record => record.rawText !== undefined ? record.rawText : record.time + ' [' + levelLabels[record.level] + '] ' + record.message).join('\r\n') + '\r\n';
       const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
       const link = document.createElement('a'); link.href = url; link.download = currentStamp().session;
@@ -453,14 +476,21 @@
         credentials: 'same-origin', ...options,
         headers: {'Content-Type':'application/json', 'X-CSRF-Token':csrfToken, ...options.headers}
       });
-      if (response.status === 401) { loginRedirect(); throw new Error('Требуется вход.'); }
+      if (response.status === 401) {
+        loginRedirect();
+        throw Object.assign(new Error('Требуется вход.'), { uiSilent: true });
+      }
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error?.message || 'Ошибка API.');
+      if (!response.ok) {
+        const message = result.error?.message;
+        // Silence only the generated fallback, even if real API text matches it.
+        throw Object.assign(new Error(message || 'Ошибка API.'), { uiSilent: !message });
+      }
       return result;
     }
 
     function showError(error) {
-      uiLog(error.message || 'Потеряна связь с API.', 'error');
+      if (error.message && !error.uiSilent) uiLog(error.message, 'error');
     }
 
     $('schedule-toggle').addEventListener('click', async () => {
@@ -476,7 +506,6 @@
       requestPending = true; updateStatus(); setLogFollowing(true);
       try {
         await api('run', {method:'POST', body:'{}'});
-        uiLog('Запрос запуска принят. Ход обработки — в журнале.');
       } catch (error) { showError(error); }
       finally { requestPending = false; await refreshStatus(); }
     });
@@ -498,9 +527,10 @@
       if (delivered.size > 1024) delivered.delete(delivered.keys().next().value);
       const level = {INFO:'info',OK:'success',WARNING:'warning',ERROR:'error'}[line.level] || 'info';
       const header = line.type === 'header';
-      const message = header ? line.text.replace(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \[(INFO|OK|WARNING|ERROR)\] /, '') : line.text;
-      appendRecord({session:line.file,time:line.time || '',level,rawLevel:line.level,
-        rawText:line.text,message,continuation:!header}, true);
+      const message = header ? line.text.replace(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \[(INFO|OK|WARNING|ERROR)\] /, '') : line.text.replace(/^\t/, '');
+      const [date = '', time = ''] = (line.time || '').split(' ');
+      appendRecord({session:line.file,identity:line.identity,generation,block:line.block,type:line.type,
+        date,time,level,rawLevel:line.level,rawText:line.text,message}, true);
     }
 
     function connectEvents() {
@@ -513,18 +543,17 @@
         cursor = event.lastEventId; serverStatus = JSON.parse(event.data); connected = true; updateStatus();
       });
       source.addEventListener('diagnostic', event => {
+        // Diagnostics still advance delivery; they are not UI journal entries.
         cursor = event.lastEventId;
-        const data = JSON.parse(event.data); uiLog(data.text, data.level === 'ERROR' ? 'error' : data.level === 'WARNING' ? 'warning' : 'info');
       });
       source.addEventListener('resync', () => {
         source.close();
-        uiLog('Доступная история изменилась или соединение прерывалось. Загружается доступная часть журнала; прежние строки сохранены.', 'warning');
         syncHistory().catch(showError);
       });
       source.onerror = async () => {
         connected = false; updateStatus();
-        if (!lastDiagnostic) { uiLog('Связь с потоком потеряна; выполняется переподключение.', 'warning'); lastDiagnostic = 'stream'; }
-        try { const state = await api('session'); if (!state.authenticated) loginRedirect(); } catch { /* Native EventSource reconnects. */ }
+        try { const state = await api('session'); if (!state.authenticated) loginRedirect(); }
+        catch (error) { showError(error); } // Native EventSource reconnects.
       };
     }
 
@@ -534,7 +563,6 @@
       try {
         const history = await api('logs/history');
         for (const line of history.lines) receiveLine(line);
-        if (history.truncated) uiLog('История превышает буфер панели; показан доступный конец журналов.', 'warning');
         cursor = history.cursor; connectEvents();
       } finally { syncing = false; }
     }
@@ -634,7 +662,6 @@
       try {
         const result = await api('settings', {method:'PUT',body:JSON.stringify({values,revision})});
         applySettings(result); dirtyTabs.clear();
-        configStatus('Настройки сохранены в config.py; применятся при следующем запуске.');
       } catch (error) { showError(error); }
       finally { $('save-settings').disabled = !revision; }
     });
@@ -657,7 +684,7 @@
         input.value = input.dataset.secret ? '' : defaults[input.name]; input.removeAttribute('aria-invalid');
       });
       $('panel-' + activeTab).querySelectorAll('.secret-toggle').forEach(button => setSecretVisibility(button, false));
-      configStatus('Восстановлены загруженные значения config.py.');
+      dirtyTabs.delete(activeTab);
     });
 
     async function initialize() {
@@ -668,7 +695,6 @@
         await refreshStatus();
         try { applySettings(await api('settings')); } catch (error) { showError(error); }
         await syncHistory();
-        uiLog('Интервал и часовой пояс доступны только при достоверном чтении cron. Статические подписи вкладки будут уточнены отдельно.');
       } catch (error) {
         connected = false; updateStatus(); showError(error);
         setTimeout(initialize, 3000);
