@@ -7,7 +7,7 @@
 
 .log-records {
     margin-bottom: 0px;
-    padding-top: 0;
+    padding-top: 25px;
     padding-bottom: 55px;
     mask-image: linear-gradient( to bottom, transparent 0px, black 15px, black calc(100% - 10px), transparent 100% );
 }
