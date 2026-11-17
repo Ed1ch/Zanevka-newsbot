@@ -1,6 +1,23 @@
-/* Isolated layout only. Colors/inputs/button inherit the original first theme. */
-.login-app { justify-content: center; align-items: center; }
-.login-form { width: min(380px, calc(100% - 32px)); height: auto; padding: 28px; gap: 18px; }
+/* Isolated login presentation. Shared form colors and controls stay unchanged. */
+body.login-page {
+  background: #132633 url("newsbot-login-background.webp") center center / cover no-repeat;
+}
+.login-app {
+  justify-content: center;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.login-form {
+  width: min(380px, calc(100% - 32px));
+  height: auto;
+  padding: 28px;
+  gap: 18px;
+  box-shadow: 0 20px 60px #07131ecc;
+}
 .login-form h1 { width: auto; font-size: 22px; }
 .login-form .save-button { margin-left: 0; }
 #login-error { min-height: 1.5em; margin: 0; }

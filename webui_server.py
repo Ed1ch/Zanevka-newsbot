@@ -838,11 +838,11 @@ def create_app(cfg, *, root=ROOT, config_path=None, start_reader=True):
             return redirect(url_for("index"))
         return send_from_directory(root / "webui", "login.html")
 
-    # Only pre-existing public assets plus the isolated login's CSS/JS. Never
-    # expose the project root, README/AGENTS, config, flags or arbitrary files.
+    # Only WebUI assets, including the login background. Never expose the
+    # project root, README/AGENTS, config, flags or arbitrary files.
     @app.get("/index_files/<path:name>")
     def assets(name):
-        if "/" in name or Path(name).suffix not in {".css", ".js", ".svg"}:
+        if "/" in name or Path(name).suffix not in {".css", ".js", ".svg", ".webp"}:
             raise APIError("not_found", "Файл недоступен.", 404)
         asset = root / "webui" / "index_files" / name
         if asset.is_symlink():
