@@ -11,6 +11,67 @@ import time
 from playwright.sync_api import sync_playwright
 
 
+def check_login_preview(page, url):
+    requests = []
+    def track_preview(request):
+        if request.url.endswith("/logs/preview"):
+            requests.append(request.url)
+
+    page.on("request", track_preview)
+    page.goto(url)
+    page.wait_for_url("**/login")
+    output = page.locator("#preview-records")
+    output.get_by_text("Журнал пока пуст.").wait_for()
+    assert len(requests) == 1
+    panel = page.locator(".log-panel")
+    form = page.locator("#login-form")
+    assert panel.bounding_box() == dict(x=1040, y=20, width=380, height=300)
+    assert form.bounding_box()["x"] == form.bounding_box()["y"] == 20
+    assert form.bounding_box()["width"] == 380
+    assert output.evaluate("e => getComputedStyle(e).paddingTop") == "5px"
+
+    files = ["01112026_120000_abcdef.txt", "02112026_120000_abcdef.txt"]
+    lines = []
+    stamp = "2026-11-02 12:00:00"
+    detail = "\tTraceback\n\t    <b>detail</b>"
+    for file in files:
+        for i in range(24):
+            base = dict(file=file, time=stamp, level="ERROR", block=f"{file}:{i}")
+            lines.append(dict(base, type="header", text=stamp + " [ERROR] failure"))
+            lines.extend(dict(base, type="detail", text=row) for row in detail.splitlines())
+    route = "**/api/logs/preview"
+    page.route(route, lambda r: r.fulfill(json=dict(files=files, lines=lines, truncated=True)))
+    page.get_by_role("button", name="Обновить").click()
+    output.get_by_text("Показана только доступная часть истории.").wait_for()
+    assert output.locator(".filename").all_text_contents() == files
+    assert output.locator(".message").last.text_content() == "failure\n" + detail
+    assert output.locator("b").count() == 0
+    assert output.evaluate("e => e.scrollHeight - e.scrollTop - e.clientHeight < 2 && e.scrollTop > 0")
+    assert output.evaluate("e => getComputedStyle(e).fontSize") == "10px"
+    assert page.locator(".log-head").evaluate("e => getComputedStyle(e).backgroundColor") == "rgba(0, 0, 0, 0)"
+    assert page.locator("#refresh-log").evaluate("e => getComputedStyle(e).backgroundColor.startsWith('rgb(')")
+    edge = page.locator(".resize-edge").bounding_box()
+    x, y = edge["x"] + 100, edge["y"] + 6
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x, y + 120)
+    page.mouse.up()
+    assert panel.bounding_box() == dict(x=1040, y=20, width=380, height=420)
+    page.set_viewport_size(dict(width=390, height=540))
+    box = panel.bounding_box()
+    assert box["y"] >= form.bounding_box()["y"] + form.bounding_box()["height"]
+    assert box["y"] + box["height"] <= 540
+    page.set_viewport_size(dict(width=1440, height=1000))
+    assert len(requests) == 2
+    page.unroute(route)
+    page.route(route, lambda r: r.fulfill(status=503, json={"error": {"message": "fixture error"}}))
+    page.get_by_role("button", name="Обновить").click()
+    output.get_by_text("fixture error", exact=False).wait_for()
+    assert len(requests) == 3
+    page.unroute(route)
+    page.remove_listener("request", track_preview)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixture-root", required=True, type=Path)
@@ -24,8 +85,7 @@ def main():
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
-        page.goto(args.url)
-        page.wait_for_url("**/login")
+        check_login_preview(page, args.url)
         page.locator('input[name="username"]').fill("browser-admin")
         page.locator('input[name="password"]').fill("wrong")
         page.get_by_role("button", name="Войти").click()
@@ -40,7 +100,7 @@ def main():
         assert page.locator('[name="IMAP_PASSWORD"]').input_value() == ""
         main_style = page.locator('[name="IMAP_HOST"]').evaluate("e => ({background:getComputedStyle(e).backgroundColor,border:getComputedStyle(e).borderColor,color:getComputedStyle(e).color})")
         assert style == main_style, (style, main_style)
-        assert login_body == page.locator('body').evaluate("e => getComputedStyle(e).backgroundImage")
+        assert "SHeep_edit.webp" in login_body and "radial-gradient" in login_body
         second = context.new_page()
         second.goto(args.url)
         second.wait_for_function("!document.getElementById('run-now').disabled")
@@ -127,7 +187,7 @@ def main():
         assert state == 200
         page.wait_for_url('**/login',timeout=5000)
         print(json.dumps({'browser':browser.version,'live_log_latency_seconds':round(latency,3),
-            'page_errors':errors,'checks':'login/auth/settings/two-panels/SSE/prefix/XSS/scroll/theme/tabs/drag/resize/scale/filter/export/clear/logout'},ensure_ascii=False))
+            'page_errors':errors,'checks':'login-preview/auth/settings/two-panels/SSE/prefix/XSS/scroll/theme/tabs/drag/resize/scale/filter/export/clear/logout'},ensure_ascii=False))
         browser.close()
 
 

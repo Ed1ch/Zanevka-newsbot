@@ -71,6 +71,53 @@ class APIChecks(unittest.TestCase):
         self.assertEqual(self.mutation("/api/logout").status_code, 200)
         self.assertEqual(self.client.get("/api/status").status_code, 401)
 
+    def test_public_preview_access_and_reader_errors(self):
+        path = "/api/logs/preview"
+        hub = self.ext["hub"]
+        anon = self.app.test_client()
+        self.assertEqual(anon.get(path).json, hub.snapshot())
+        for method in ("HEAD", "OPTIONS", "POST"):
+            self.assertEqual(anon.open(path, method=method).status_code, 401)
+        self.assertEqual(anon.get("/api/logs/history").status_code, 401)
+        hub.error = "offline fixture"
+        response = anon.get(path)
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json["error"]["code"], "logs_unavailable")
+        with anon.get("/index_files/SHeep_edit.webp") as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.mimetype, "image/webp")
+        self.assertEqual(anon.get("/index_files/SHeep_edit.png").status_code, 404)
+
+    def test_public_preview_uses_bounded_snapshot(self):
+        hub = self.ext["hub"]
+        hub.directory.mkdir()
+        files = [f"{day:02d}112026_120000_abcdef.txt" for day in range(1, 12)]
+        block = "2026-11-11 12:00:00 [ERROR] failure\n\tTraceback\n\t    detail\n\n"
+        for name in files:
+            (hub.directory / name).write_text(block, encoding="utf-8")
+        hub.poll()
+        self.login()
+        anon = self.app.test_client()
+
+        def check_snapshot():
+            preview = anon.get("/api/logs/preview")
+            self.assertEqual(preview.status_code, 200)
+            self.assertEqual(preview.json, hub.snapshot())
+            self.assertEqual(preview.json, self.client.get("/api/logs/history").json)
+            return preview.json
+
+        snapshot = check_snapshot()
+        self.assertEqual(snapshot["files"], files[-10:])
+        self.assertEqual([row["text"] for row in snapshot["lines"]], block.splitlines() * 10)
+        for count, width in ((10001, 1), (5000, 1000)):
+            with (hub.directory / files[-1]).open("a", encoding="utf-8") as stream:
+                stream.write(("x" * width + "\n") * count)
+            while hub.files[files[-1]]["offset"] < (hub.directory / files[-1]).stat().st_size:
+                hub.poll()
+            snapshot = check_snapshot()
+            self.assertTrue(snapshot["truncated"])
+            self.assertEqual(len(snapshot["lines"]), min(10000, 4 * 1024 * 1024 // width))
+
     def test_settings_preserve_comments_secrets_revision_and_failure(self):
         self.login()
         path = self.root / "config.py"

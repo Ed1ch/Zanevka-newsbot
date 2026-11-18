@@ -16,6 +16,7 @@ Unauthenticated 401, CSRF 403, invalid input 400, conflict 409, unavailable 503.
 | PUT api/settings | `{values:{FIELD:value},revision}` | safe settings representation |
 | PUT api/schedule | `{enabled:boolean}` | schedule representation |
 | POST api/debug/reset-flags | `{}` | `{reset,deleted,errors}`; partial failure 500 |
+| GET api/logs/preview | — | Same bounded snapshot as history (public GET) |
 | GET api/logs/history | — | `{files,lines,cursor,truncated}` |
 | GET api/events?cursor=… | — | SSE stream; Last-Event-ID takes precedence |
 

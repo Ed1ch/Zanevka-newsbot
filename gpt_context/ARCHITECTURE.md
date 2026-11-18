@@ -89,6 +89,8 @@ WebUI обслуживается `webui_server.py`: Flask/Waitress, одна у�
 страница login, CSRF, ограниченная cookie-сессия, config.py с ревизией и один
 читатель файлов/SSE. Сервер запускает отдельный `sys.executable -u prelaunch.py`
 с cwd проекта; основной конвейер в API не импортируется.
+Публичный GET `api/logs/preview` на странице входа отдаёт тот же снимок
+`LogHub`, что и защищённый `api/logs/history`.
 
 ## Границы интеграции
 

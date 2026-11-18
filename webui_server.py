@@ -665,7 +665,8 @@ def create_app(cfg, *, root=ROOT, config_path=None, start_reader=True):
         if not cfg["external_https"] and request.remote_addr not in {"127.0.0.1", "::1"}:
             raise APIError("local_only", "Режим HTTP доступен только с loopback.", 403)
         if request.path.startswith("/api/"):
-            public = request.path in {"/api/session", "/api/login"}
+            public = (request.path in {"/api/session", "/api/login"} or
+                      (request.method == "GET" and request.path == "/api/logs/preview"))
             if not public and not authenticated():
                 raise APIError("unauthorized", "Требуется вход.", 401)
             if request.method not in {"GET", "HEAD", "OPTIONS"}:
@@ -792,6 +793,7 @@ def create_app(cfg, *, root=ROOT, config_path=None, start_reader=True):
                 return jsonify(error={"code": "partial_reset", "message": "Часть записей не удалена."}, **result), 500
             return jsonify(result)
 
+    @app.get("/api/logs/preview")
     @app.get("/api/logs/history")
     def history():
         if hub.error:
