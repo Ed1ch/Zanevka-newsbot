@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="ru">
 <head>
@@ -12,10 +13,22 @@
 <body class="login-page">
   <main class="app login-app">
     <form id="login-form" class="settings-body login-form">
-      <h1>Zanevka <strong>Newsbot</strong></h1>
-      <label class="field"><span class="field-label">Имя администратора</span><input name="username" autocomplete="username" required autofocus></label>
-      <label class="field"><span class="field-label">Пароль</span><input name="password" type="password" autocomplete="current-password" required></label>
-      <button class="save-button" type="submit" disabled>Войти</button>
+    
+
+      <div class="login-row">
+        <label class="field">
+          <span class="field-label">Логин</span>
+          <input name="username" autocomplete="username" required autofocus>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Пароль</span>
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+
+        <button class="save-button" type="submit" disabled>Войти</button>
+      </div>
+
       <p id="login-error" role="status" aria-live="polite"></p>
     </form>
   </main>

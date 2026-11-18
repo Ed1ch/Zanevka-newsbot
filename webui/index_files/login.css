@@ -1,10 +1,12 @@
 /* Isolated login presentation. Shared form colors and controls stay unchanged. */
 body.login-page {
-  background: #132633 url("newsbot-login-background.webp") center center / cover no-repeat;
+  background: #132633 url("SHeep_edit.png") center center / cover no-repeat;
 }
 .login-app {
-  justify-content: center;
-  align-items: center;
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding: 20px;
+  box-sizing: border-box;
   background: transparent;
   border: 0;
   border-radius: 0;
@@ -14,10 +16,35 @@ body.login-page {
 .login-form {
   width: min(380px, calc(100% - 32px));
   height: auto;
-  padding: 28px;
+  padding: 15px;
   gap: 18px;
   box-shadow: 0 20px 60px #07131ecc;
 }
 .login-form h1 { width: auto; font-size: 22px; }
 .login-form .save-button { margin-left: 0; }
-#login-error { min-height: 1.5em; margin: 0; }
+#login-error {
+  min-height: 1.5em;
+  margin: 0;
+  color: #a3382a;
+  font-size: 10px;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+.login-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.login-row .field {
+  min-width: 0;
+}
+
+.login-row .save-button {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 16px;
+  margin-left: 0;
+}
