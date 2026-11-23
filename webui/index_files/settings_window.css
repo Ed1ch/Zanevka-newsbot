@@ -60,6 +60,7 @@
 .settings.is-open > .tabs { flex: 0 0 34px; padding: 0 16px 0 0; }
 .settings.is-open .tab { flex: 0 0 auto; min-width: 112px; padding: 12px 18px; font-size: 13px; }
 .settings.is-open .tab svg { display: block; }
+.settings.is-open > .tabs, .settings.is-open .settings-toolbar,
 .settings.is-open .tab[aria-selected="true"] { cursor: grab; touch-action: none; }
 .settings.is-open .settings-drawer {
   flex: 1;

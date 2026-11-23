@@ -11,6 +11,15 @@ import time
 from playwright.sync_api import sync_playwright
 
 
+def drag(page, selector, dx, dy):
+    box = page.locator(selector).bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + dx, y + dy, steps=6)
+    page.mouse.up()
+
+
 def check_login_preview(page, url):
     requests = []
     def track_preview(request):
@@ -57,10 +66,19 @@ def check_login_preview(page, url):
     page.mouse.move(x, y + 120)
     page.mouse.up()
     assert panel.bounding_box() == dict(x=1040, y=20, width=380, height=420)
+    drag(page, ".resize-left", -150, 0)
+    assert panel.bounding_box() == dict(x=890, y=20, width=530, height=420)
+    drag(page, ".resize-corner", -70, 40)
+    assert panel.bounding_box() == dict(x=820, y=20, width=600, height=460)
+    drag(page, ".resize-left", -780, 0)
+    assert panel.bounding_box()["x"] == 412
     page.set_viewport_size(dict(width=390, height=540))
     box = panel.bounding_box()
     assert box["y"] >= form.bounding_box()["y"] + form.bounding_box()["height"]
     assert box["y"] + box["height"] <= 540
+    assert box["x"] + box["width"] == 370
+    assert output.evaluate("e => e.scrollWidth === e.clientWidth")
+    assert page.evaluate("document.documentElement.scrollWidth === innerWidth")
     page.set_viewport_size(dict(width=1440, height=1000))
     assert len(requests) == 2
     page.unroute(route)
@@ -159,10 +177,53 @@ def main():
         page.locator('#tab-wordpress').click()
         assert page.locator('#panel-wordpress').is_visible()
         page.locator('#close-settings').click()
-        original_theme = page.locator('html').get_attribute('data-newsbot-theme')
-        page.locator('#theme-easter-egg').click()
-        page.wait_for_function("document.documentElement.dataset.newsbotTheme !== 'original'")
-        assert page.locator('html').get_attribute('data-newsbot-theme') != original_theme
+        assert not page.locator(".field-key").count()
+        page.locator("#toggle-panel").click()
+        port = page.locator('[name="IMAP_PORT"]')
+        port.fill("1994")
+        for selector in ("#settings-heading", ".settings-toolbar .panel-description"):
+            before = page.locator("#settings").bounding_box()
+            drag(page, selector, -18, -12)
+            after = page.locator("#settings").bounding_box()
+            assert abs(after["x"] - before["x"] + 18) < 1
+        for selector in ('[name="IMAP_PORT"]', "#reset-settings", "#settings-scroll", "#tab-vk"):
+            before = page.locator("#settings").bounding_box()
+            drag(page, selector, 45, 16)
+            assert page.locator("#settings").bounding_box() == before
+        page.locator("#tab-mail").click()
+        port.fill("1994")
+        page.locator(".identity-description").click()
+        assert page.locator("#toggle-panel").get_attribute("aria-expanded") == "false"
+        page.locator("#toggle-panel").click()
+        assert port.input_value() == "1994"
+        page.locator("#toggle-panel").click()
+        assert page.locator("#toggle-panel").get_attribute("aria-expanded") == "false"
+        page.emulate_media(reduced_motion="reduce")
+        schedule = page.locator("#schedule-toggle")
+        for theme in ("purple-edge", "deep-ocean", "dark-amethyst", "original"):
+            page.locator("#theme-easter-egg").click()
+            assert page.locator("html").get_attribute("data-newsbot-theme") == theme
+            for _ in range(2):
+                previous = schedule.get_attribute("aria-checked")
+                schedule.click()
+                page.wait_for_function("old => document.querySelector('#schedule-toggle').ariaChecked !== old", arg=previous)
+                track, knob = schedule.locator(".schedule-switch").evaluate("""e => [
+                    getComputedStyle(e).backgroundColor, getComputedStyle(e, '::before').backgroundColor]""")
+                if previous == "false":
+                    assert track != knob
+                else:
+                    assert track == "rgba(0, 0, 0, 0)"
+                assert "rgb(10, 39, 87)" not in (track, knob)
+
+        for width in (1440, 390, 320):
+            page.set_viewport_size(dict(width=width, height=1000))
+            run = page.locator("#run-now").bounding_box()
+            logout = page.locator("#logout").bounding_box()
+            status = page.locator("#status-text").bounding_box()
+            description = page.locator(".identity-description").bounding_box()
+            assert logout["y"] == run["y"] and logout["x"] + logout["width"] <= width
+            assert status["y"] + status["height"] <= description["y"] + 1
+        page.set_viewport_size(dict(width=1440, height=1000))
         page.locator('#log-output').dispatch_event('wheel', {'ctrlKey':True,'deltaY':-100})
         assert page.locator('#log-scale').text_content() == '110%'
         page.locator('#reset-log-scale').click()
@@ -183,9 +244,27 @@ def main():
         page.wait_for_timeout(1200)
         assert page.get_by_text(token,exact=False).count() == 0
         assert not errors, errors
-        state = page.evaluate("async () => {const s=await(await fetch('api/session')).json();return (await fetch('api/logout',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':s.csrf_token},body:'{}'})).status}")
-        assert state == 200
+        logout = page.get_by_role("button", name="Выйти")
+        page.route("**/api/logout", lambda route: route.fulfill(status=503, json={"error":{"message":"Ошибка выхода"}}))
+        logout.click()
+        page.get_by_role("alert").filter(has_text="Ошибка выхода").wait_for()
+        assert page.url == args.url and logout.is_enabled()
+        page.unroute("**/api/logout")
+        old_session = context.storage_state()
+        page.locator("#run-now").click()
+        page.locator("#log-records .message").filter(has_text="OFFLINE BROWSER RUN").wait_for()
+        logout.click()
         page.wait_for_url('**/login',timeout=5000)
+        stale = browser.new_context(storage_state=old_session)
+        assert stale.request.get(args.url + "api/status").status == 401
+        stale.close()
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            page.locator("#refresh-log").click()
+            if page.locator("#preview-records").get_by_text("OFFLINE COMPLETE").count():
+                break
+            page.wait_for_timeout(200)
+        page.locator("#preview-records").get_by_text("OFFLINE COMPLETE").wait_for()
         print(json.dumps({'browser':browser.version,'live_log_latency_seconds':round(latency,3),
             'page_errors':errors,'checks':'login-preview/auth/settings/two-panels/SSE/prefix/XSS/scroll/theme/tabs/drag/resize/scale/filter/export/clear/logout'},ensure_ascii=False))
         browser.close()

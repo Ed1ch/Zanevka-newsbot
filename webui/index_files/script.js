@@ -280,8 +280,10 @@
       if (collapsed || event.button !== 0 || !event.isPrimary) return;
       const resize = event.target.closest('[data-resize]');
       const tab = event.target.closest('[role="tab"]');
-      if (!resize && (!tab || tab.dataset.tab !== activeTab)) return;
-      const handle = resize || tab;
+      const activeTabHandle = tab && tab.dataset.tab === activeTab;
+      if (!resize && !activeTabHandle &&
+          event.target.closest('button, input, select, textarea, label, a, [contenteditable], .settings-scroll')) return;
+      const handle = resize || tab || event.target;
       windowGesture = {
         ...settingsWindow, pointerId: event.pointerId, handle,
         startX: event.clientX, startY: event.clientY,
@@ -327,6 +329,10 @@
     window.addEventListener('blur', () => finishWindowGesture());
     window.addEventListener('resize', () => { if (!collapsed && !windowGesture) positionSettingsWindow(false); });
     $('close-settings').addEventListener('click', () => { if (!collapsed) togglePanel(); });
+
+    document.addEventListener('click', event => {
+      if (!collapsed && !settings.contains(event.target) && !panelToggle.contains(event.target)) togglePanel();
+    }, true);
 
     function configStatus(message, state = '') {
       if (message) uiLog(message, state === 'error' ? 'error' : 'info');
@@ -476,7 +482,7 @@
         credentials: 'same-origin', ...options,
         headers: {'Content-Type':'application/json', 'X-CSRF-Token':csrfToken, ...options.headers}
       });
-      if (response.status === 401) {
+      if (response.status === 401 && path !== 'logout') {
         loginRedirect(); throw Object.assign(new Error('Требуется вход.'), { uiNotice: true });
       }
       const result = await response.json();
@@ -499,6 +505,20 @@
         await api('schedule', {method:'PUT', body:JSON.stringify({enabled:serverStatus.schedule.enabled !== true})});
         await refreshStatus();
       } catch (error) { showError(error); updateStatus(); }
+    });
+
+    $('logout').addEventListener('click', async () => {
+      const feedback = $('logout-error');
+      feedback.classList.remove('visible');
+      $('logout').disabled = true;
+      try {
+        await api('logout', {method:'POST', body:'{}'});
+        loginRedirect();
+      } catch (error) {
+        feedback.textContent = error.message || 'Потеряна связь с API.';
+        feedback.classList.add('visible');
+        $('logout').disabled = false;
+      }
     });
 
     $('run-now').addEventListener('click', async () => {
@@ -694,6 +714,7 @@
         const state = await api('session');
         if (!state.authenticated) { loginRedirect(); return; }
         csrfToken = state.csrf_token;
+        $('logout').disabled = false;
         await refreshStatus();
         try { applySettings(await api('settings')); } catch (error) { showError(error); }
         await syncHistory();

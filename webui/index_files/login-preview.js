@@ -59,28 +59,55 @@
     return Math.round(panel.parentElement.getBoundingClientRect().bottom - panel.getBoundingClientRect().top - 20);
   }
 
-  function resize(height) {
+  function resizeHeight(height) {
     panel.style.height = Math.min(availableHeight(), Math.max(300, height)) + 'px';
   }
 
-  let startY, startHeight;
-  edge.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || !event.isPrimary) return;
-    startY = event.clientY;
-    startHeight = panel.offsetHeight;
-    edge.setPointerCapture(event.pointerId);
-    panel.classList.add('is-resizing');
+  const left = panel.querySelector('.resize-left');
+  const corner = panel.querySelector('.resize-corner');
+  function availableWidth() {
+    const app = panel.parentElement;
+    // The preview occupies the last grid column in both layouts.
+    return parseFloat(getComputedStyle(app).gridTemplateColumns.split(' ').pop());
+  }
+  function resizeWidth(width) {
+    panel.style.setProperty('--preview-width', Math.min(availableWidth(), Math.max(220, width)) + 'px');
+  }
+
+  for (const handle of [left, edge, corner]) {
+    let startX, startY, startWidth, startHeight;
+    handle.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || !event.isPrimary) return;
+      startX = event.clientX;
+      startY = event.clientY;
+      startWidth = panel.offsetWidth;
+      startHeight = panel.offsetHeight;
+      handle.setPointerCapture(event.pointerId);
+      panel.classList.add('is-resizing');
+    });
+    handle.addEventListener('pointermove', event => {
+      if (!handle.hasPointerCapture(event.pointerId)) return;
+      if (handle !== edge) resizeWidth(startWidth + startX - event.clientX);
+      if (handle !== left) resizeHeight(startHeight + event.clientY - startY);
+    });
+    handle.addEventListener('lostpointercapture', () => panel.classList.remove('is-resizing'));
+  }
+  left.addEventListener('keydown', event => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    resizeWidth(panel.offsetWidth + (event.key === 'ArrowLeft' ? 20 : -20));
   });
-  edge.addEventListener('pointermove', event => {
-    if (edge.hasPointerCapture(event.pointerId)) resize(startHeight + event.clientY - startY);
-  });
-  edge.addEventListener('lostpointercapture', () => panel.classList.remove('is-resizing'));
   edge.addEventListener('keydown', event => {
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
     event.preventDefault();
-    resize(panel.offsetHeight + (event.key === 'ArrowDown' ? 20 : -20));
+    resizeHeight(panel.offsetHeight + (event.key === 'ArrowDown' ? 20 : -20));
   });
   const sizeObserver = new ResizeObserver(() => {
+    const width = availableWidth();
+    left.setAttribute('aria-valuemin', Math.min(220, width));
+    left.setAttribute('aria-valuemax', width);
+    left.setAttribute('aria-valuenow', panel.offsetWidth);
+    left.setAttribute('aria-valuetext', panel.offsetWidth + ' px');
     const max = availableHeight();
     edge.setAttribute('aria-valuemin', Math.min(300, max));
     edge.setAttribute('aria-valuemax', max);
