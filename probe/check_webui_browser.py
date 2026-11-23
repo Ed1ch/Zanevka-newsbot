@@ -4,6 +4,7 @@ Requires an available Playwright Python installation and Chromium; no dependency
 is added to production. Never point this diagnostic at a live newsbot instance.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -32,6 +33,10 @@ def check_login_preview(page, url):
     output = page.locator("#preview-records")
     output.get_by_text("Журнал пока пуст.").wait_for()
     assert len(requests) == 1
+    background = page.request.get(url + "index_files/SHeep_edit.webp")
+    assert background.ok and background.headers["content-type"] == "image/webp"
+    # Digest of SHeep_edit_new.webp from the supplied artwork archive.
+    assert hashlib.sha256(background.body()).hexdigest() == "aff06950609cc7d183b892b27cecb4cc619db3166a3603b0a05296dad65ff453"
     panel = page.locator(".log-panel")
     form = page.locator("#login-form")
     assert panel.bounding_box() == dict(x=1040, y=20, width=380, height=300)
@@ -119,6 +124,10 @@ def main():
         main_style = page.locator('[name="IMAP_HOST"]').evaluate("e => ({background:getComputedStyle(e).backgroundColor,border:getComputedStyle(e).borderColor,color:getComputedStyle(e).color})")
         assert style == main_style, (style, main_style)
         assert "SHeep_edit.webp" in login_body and "radial-gradient" in login_body
+        run_button = page.get_by_role("button", name="Запустить сейчас", exact=True)
+        assert run_button.get_attribute("title") == "Запустить Newsbot сейчас и опубликовать все новости из почтового ящика"
+        assert run_button.locator("use").get_attribute("href") == "#i-file-up"
+        assert page.locator(".identity-description").inner_text() == "Бот для размещения новостей на zanevkaorg.ru"
         second = context.new_page()
         second.goto(args.url)
         second.wait_for_function("!document.getElementById('run-now').disabled")
@@ -179,6 +188,7 @@ def main():
         page.locator('#close-settings').click()
         assert not page.locator(".field-key").count()
         page.locator("#toggle-panel").click()
+        page.get_by_role("tab", name="Почта", exact=True).click()
         port = page.locator('[name="IMAP_PORT"]')
         port.fill("1994")
         for selector in ("#settings-heading", ".settings-toolbar .panel-description"):
