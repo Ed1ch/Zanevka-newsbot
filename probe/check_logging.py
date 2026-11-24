@@ -149,13 +149,14 @@ class LoggingChecks(unittest.TestCase):
                 for i in range(1, sum(counts) + 1)]))
         return batches
 
-    def test_empty_check_has_one_journal_and_explicit_marker_without_ok_summary(self):
+    def test_empty_check_has_one_journal_and_explicit_marker_and_ok_summary(self):
         self.stack.enter_context(patch.object(mail, "search_unseen_news", return_value=[]))
         prelaunch.main()
-        self.assertIn("Новых писем нет", self.text())
+        summary = "[OK] Проверка завершена. Новых писем нет."
+        self.assertIn(summary, self.text())
+        self.assertIn("Process lock получен\n\tРежим: первый проход, отсрочка разрешена\n\tWorkflow: CHECK INBOX", self.text())
         self.assertEqual(len(list(self.flags.glob("*.empty.json"))), 1)
-        self.assertNotIn("[OK]", self.console.getvalue())
-        self.assertIn("Новых писем нет", self.console.getvalue())
+        self.assertIn(summary, self.console.getvalue())
 
     def test_multiple_emails_share_one_live_utf8_file(self):
         self.prepare_pipeline((2, 3))

@@ -17,7 +17,7 @@
 
 /* Иконки: не затрагиваем текст и фон кнопок. */
 .log-toolbar img,
-#toggle-panel img,
+.log-panel-toggle img,
 .log-bottom img {
   opacity: var(--log-icon-opacity);
 }
@@ -26,7 +26,7 @@
    Выпадающее меню фильтра и его пункты не затрагиваются. */
 .log-toolbar .log-filter-control:hover,
 .log-toolbar .log-control:hover,
-#toggle-panel:hover,
+.log-panel-toggle:hover,
 .log-bottom .log-control:hover {
   background-color: rgb(from var(--log-hover-color) r g b / var(--log-hover-opacity));
 }

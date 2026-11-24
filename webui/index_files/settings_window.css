@@ -20,7 +20,8 @@
   padding: 0;
 }
 /* Global toggle stays fixed independently of the settings window. */
-#toggle-panel { position: fixed; margin-top: 20px; z-index: 40; top: calc(var(--settings-log-top, 0px) + 64px); }
+#toggle-panel, #follow-log { position: fixed; margin-top: 20px; z-index: 40; top: calc(var(--settings-log-top, 0px) + 64px); }
+#follow-log { margin-top: calc(20px + 32px + 20px); right: var(--follow-log-right); margin-right: 0; }
 
 .settings {
   position: fixed;

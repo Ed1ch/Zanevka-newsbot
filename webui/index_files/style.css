@@ -75,9 +75,9 @@
     .run-controls { display: flex; align-items: center; justify-content: flex-end; gap: 30px; transform: translateY(-1px); flex-shrink: 0; flex: 1; }
     .run-actions { display: flex; gap: 8px; }
     .run-button svg { width: 16px; height: 16px; }
-    .run-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; opacity: .902; height: 36px; padding: 0 12px; border: 2px solid; border-radius: 999px; background: transparent; color: #f6f5f5; font-size: 12px; white-space: nowrap; transition: background-color 170ms ease, color 170ms ease, border-color 170ms ease; }
+    .run-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; opacity: .902; height: 36px; padding: 0 12px; border: 2px solid #f6f5f5; border-radius: 999px; background: transparent; color: #f6f5f5; font-size: 12px; white-space: nowrap; transition: background-color 170ms ease, color 170ms ease; }
     #logout { margin-left: 10px; aspect-ratio: 1; padding: 0; }
-    .run-button:enabled:hover { background-color: #c7ddf51a; color: white; border-color: var(--cyan); }
+    .run-button:enabled:hover { background-color: #c7ddf51a; color: white; }
     .run-button:enabled:active { background-color: #c7ddf533; }
     .log-toolbar {
 	  position: absolute;
@@ -196,7 +196,7 @@
 	.log-session .file-name { min-width: 0; overflow-wrap: anywhere; color: #b7c8de; font-size: calc(11px * var(--log-scale, 1)); }
 	.log-session .session-line { flex: 1 0 2ch; height: 1px; background: #a5bbd01d; }
 	.log-row { display: grid; grid-template-columns: 10ch calc(57px * var(--log-scale, 1)) minmax(0, 1fr); align-items: start; gap: 12px; margin: 1lh 0 0; min-height: calc(19.2px * var(--log-scale, 1)); color: #b7c8de; }
-	.log-row .time { width: 10ch; white-space: pre; color: #b7c8de; }
+	.log-row .time { width: 10ch; white-space: pre; height: 1lh; overflow: hidden; color: #b7c8de; }
 	.log-row .level { font-size: calc(10px * var(--log-scale, 1)); letter-spacing: .045em; padding-top: 2px; opacity: .95; }
 	.log-row .message { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 	.log-row.greeting .message { color: rgb(250, 254, 255); }

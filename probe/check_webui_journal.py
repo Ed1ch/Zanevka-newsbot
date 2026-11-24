@@ -81,7 +81,8 @@ def check_layout(page):
                 if (Math.abs(t.getBoundingClientRect().width-probe.getBoundingClientRect().width)>0.2) errors.push('10ch');
                 probe.remove();
                 if (t.textContent.split('\\n').length!==2 || t.scrollWidth>t.clientWidth+1) errors.push('timestamp');
-                if (Math.abs(t.getBoundingClientRect().height/zoom-2*parseFloat(s.lineHeight))>1) errors.push('time height');
+                if (Math.abs(t.getBoundingClientRect().height/zoom-parseFloat(s.lineHeight))>1) errors.push('time height');
+                if (getComputedStyle(t).overflow !== 'hidden' || t.scrollHeight <= t.clientHeight) errors.push('date clipping');
                 if (t.getBoundingClientRect().right>l.getBoundingClientRect().left || l.getBoundingClientRect().right>m.getBoundingClientRect().left) errors.push('columns');
                 if (m.scrollWidth>m.clientWidth+1 || m.getBoundingClientRect().right>r.right+1) errors.push('wrapping');
               }
@@ -102,20 +103,33 @@ def check_header(page):
         assert style("#running-status", ["marginTop", "marginLeft", "marginBottom"]) == ["-7px", "3px", "0px"]
         assert style("#toggle-panel", ["position", "marginTop"]) == ["fixed", "20px"]
         assert style("#logout", ["marginLeft"]) == ["10px"]
+        output = page.locator("#log-output").bounding_box()
+        follow = page.get_by_role("button", name="К последнему сообщению")
+        page.locator("#log-records").dispatch_event("wheel", {"deltaY": -100})
+        box = follow.bounding_box()
+        toggle = page.locator("#toggle-panel").bounding_box()
+        zoom = page.locator("body").evaluate("e=>parseFloat(getComputedStyle(e).zoom)")
+        assert box["width"] == toggle["width"] and box["height"] == toggle["height"]
+        assert abs((box["y"] - toggle["y"] - toggle["height"]) / zoom - 20) < 1
+        assert abs((output["x"] + output["width"] - box["x"] - box["width"]) / zoom - 20) < 1
+        follow.click()
+        assert follow.is_hidden()
         for selector in ("#run-now", "#logout"):
             button = page.locator(selector)
             page.emulate_media(reduced_motion="no-preference")
-            assert style(selector, ["transitionDuration"]) == ["0.17s, 0.17s, 0.17s"]
+            assert style(selector, ["transitionDuration"]) == ["0.17s, 0.17s"]
             page.emulate_media(reduced_motion="reduce")
             assert style(selector, ["transitionDuration"]) == ["0s"]
             page.mouse.move(0, 0)
             colors = ["backgroundColor", "color", "borderColor"]
             before = style(selector, colors)
+            assert button.evaluate("e=>e.offsetWidth-e.clientWidth") == 4
             box = button.bounding_box()
             button.hover()
             hover = style(selector, colors)
-            assert all(a != b for a, b in zip(before, hover))
+            assert before[0] != hover[0] and before[1] != hover[1] and before[2] == hover[2]
             page.mouse.down()
+            assert style(selector, ["borderColor"]) == [before[2]]
             assert style(selector, colors)[0] != hover[0] and button.bounding_box() == box
             page.mouse.move(0, 0)
             page.mouse.up()
@@ -283,7 +297,7 @@ def main():
         page.goto(URL)
         page.locator(".greeting").first.wait_for()
         assert message(page, "Статические подписи вкладки").count() == 0
-        assert page.locator("#log-records .file-name").all_text_contents() == FILES + ["WebUI"]
+        assert page.locator("#log-records .file-name").all_text_contents() == FILES + ["Newsbot speaking"]
         assert page.locator("#log-records .log-row:not(.greeting)").count() == 6
         assert message(page, "INBOX").text_content() == "INBOX\n" + "\n".join(text[1:] for text in details)
         assert message(page, "INBOX").locator("..").locator(".time").text_content() == "14:18:01\n2026-10-23"
@@ -311,11 +325,11 @@ def main():
             page.evaluate("theme => document.documentElement.dataset.newsbotTheme=theme", theme)
             colors = page.evaluate("""() => Object.fromEntries(['success','warning','error','info'].map(level=>{
               const row=document.querySelector('.log-row.'+level);return [level,['.level','.message','.time'].map(sel=>getComputedStyle(row.querySelector(sel)).color)];}))""")
+            check_header(page)
             assert colors["success"][:2] == ["rgb(157, 232, 186)"] * 2, colors
             assert colors["success"][2] == colors["info"][2]
             assert colors["warning"][0] != colors["error"][0] != colors["info"][0]
         page.evaluate("document.documentElement.dataset.newsbotTheme='original'")
-        check_header(page)
         check_layout(page)
         if args.screenshot:
             page.locator("#log-records").evaluate("e=>e.scrollTop=0")
@@ -329,6 +343,13 @@ def main():
         assert page.locator("#log-records .log-row").count() == 2
         assert message(page, "OK BLOCK").count() == 0
         assert "second warning" in message(page, "BOT WARNING").text_content()
+        page.locator("#log-records").dispatch_event("wheel", {"deltaY": -100})
+        page.get_by_role("button", name="К последнему сообщению").click()
+        assert page.locator("#log-records .log-row").last.evaluate(
+            "e=>e.getBoundingClientRect().bottom <= e.parentElement.getBoundingClientRect().bottom + 1")
+        assert page.locator("#log-filter").input_value() == "warning"
+        assert page.locator("#log-scale").text_content() == "100%"
+        assert page.locator("#log-records .log-row").count() == 2
         page.locator("#log-filter").select_option("all")
 
         # Silent controls still change their state; validation blocks the mutation.
@@ -434,6 +455,15 @@ def main():
         page.wait_for_function("document.getElementById('log-records').scrollTop === 0")
         emit(page, "line", line(FILES[2], 12000, 0, "\tmanual position retained", "OK", generation="2"))
         assert output.evaluate("e=>e.scrollTop") == 0
+        follow = page.get_by_role("button", name="К последнему сообщению")
+        follow.click()
+        assert follow.is_hidden()
+        assert_at_bottom(page)
+        emit(page, "line", line(FILES[2], 12500, 0, "\tfollow resumed", "OK", generation="2"))
+        assert_at_bottom(page)
+        output.hover()
+        page.mouse.wheel(0, -1000000)
+        follow.wait_for()
         page.mouse.wheel(0, 1000000)
         page.wait_for_function("() => { const e=document.querySelector('#log-records'); return e.scrollHeight-e.clientHeight-e.scrollTop<2; }")
         emit(page, "line", line(FILES[2], 13000, 0, "\ttall block actual bottom", "OK", generation="2"))

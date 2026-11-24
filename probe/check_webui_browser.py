@@ -161,6 +161,29 @@ def main():
         with journal.open('ab') as stream: stream.write(b'\tMANUAL SCROLL RETAINED\n')
         page.locator('#log-records .message').filter(has_text='MANUAL SCROLL RETAINED').wait_for()
         assert page.locator('#log-records').evaluate('e => e.scrollTop') == 0
+        lock = "Process lock получен"
+        first = "Режим: первый проход, отсрочка разрешена"
+        repeat = "Режим: повторный проход, отсрочка запрещена"
+        workflow = "Workflow: CHECK INBOX → DOWNLOAD BATCH → DOC+IMG MATCHING → VK PARSE → INTEGRITY CHECK → WORDPRESS PUBLISHING"
+        summary = "Проверка завершена. Новых писем нет."
+        stamp = "2026-11-24 16:06:11"
+        with journal.open("a", encoding="utf-8") as stream:
+            for mode in (first, repeat):
+                stream.write(f"{stamp} [INFO] {lock}\n\t{mode}\n\t{workflow}\n\n")
+            stream.write(f"{stamp} [INFO] Другой Workflow: пример\n{stamp} [OK] {summary}\n")
+        preview = browser.new_page()
+        preview.on("pageerror", lambda error: errors.append(str(error)))
+        page.get_by_text(summary, exact=True).wait_for()
+        preview.goto(args.url + "login")
+        for view, row in ((page, ".log-row"), (preview, ".preview-row")):
+            last = view.locator(row).filter(has_text=summary)
+            last.wait_for()
+            assert last.locator(".level").text_content() == "OK"
+            assert last.locator(".time").text_content().splitlines()[0] == "16:06:11"
+            messages = view.locator(row + " .message").all_text_contents()
+            assert any(repeat in m for m in messages) and "Другой Workflow: пример" in messages
+            assert all(term not in m for term in (lock, first, workflow) for m in messages)
+        preview.close()
         # UI controls retain their existing behavior and DOM.
         page.locator('#tab-mail').click()
         page.locator('[name="IMAP_PORT"]').fill('1993')
@@ -293,12 +316,16 @@ def main():
         text = Path(download.value.path()).read_text(encoding='utf-8')
         assert '\t' + token in text
         assert '[OK] OFFLINE COMPLETE' in text
+        assert all(term in text for term in (lock, first, workflow))
         greeting = page.locator("#log-greeting").evaluate("e=>e.content.textContent.trim().split('\\n')")
         real_logs = [path.read_text(encoding="utf-8") for path in journal.parent.glob("*.txt")]
         for endpoint in ("logs/history", "logs/preview"):
             response = context.request.get(args.url + "api/" + endpoint)
             assert response.ok
-            real_logs.extend(row["text"] for row in response.json()["lines"])
+            lines = response.json()["lines"]
+            assert any(row["text"].endswith(summary) and row["level"] == "OK" for row in lines)
+            assert all(any(term in row["text"] for row in lines) for term in (lock, first, workflow))
+            real_logs.extend(row["text"] for row in lines)
         for greeting_line in greeting:
             assert all(greeting_line not in contents for contents in [text, *real_logs])
         page.locator('#clear-log').click()

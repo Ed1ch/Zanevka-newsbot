@@ -3,7 +3,7 @@
     const $ = (id) => document.getElementById(id);
     const app = $('app'), form = $('settings-form'), output = $('log-records'), drawer = $('settings-drawer');
     const settings = $('settings'), logBottom = document.querySelector('.log-bottom');
-    const panelToggle = $('toggle-panel');
+    const panelToggle = $('toggle-panel'), followButton = $('follow-log');
     const tabs = [...document.querySelectorAll('[role="tab"]')];
     const inputs = [...form.querySelectorAll('input[name], select[name]')];
     let defaults = {}, loadedValues = {}, revision = null, csrfToken = '';
@@ -47,9 +47,10 @@
       output.scrollTop += (last.getBoundingClientRect().bottom - output.getBoundingClientRect().bottom) / getPageScale() + bottomPadding;
     }
 
-    function setLogFollowing(value) {
+    function setLogFollowing(value, align = value) {
       followLog = value;
-      if (value) {
+      followButton.hidden = value;
+      if (align) {
         resizeLogTail();
         scrollToLastRecord();
       }
@@ -73,6 +74,7 @@
       const visible = blocks.filter(record => {
         if (record.lines) {
           // Blank separators stay in rawText/export, without doubling CSS gaps.
+          record.lines = visibleJournalLines(record.type, record.rawLevel, record.lines);
           let start = 0, end = record.lines.length;
           while (start < end && record.lines[start] === '') start++;
           while (end > start && record.lines[end - 1] === '') end--;
@@ -99,7 +101,7 @@
         const session = record.session || currentSession || 'WebUI';
         if (session !== currentSession) {
           const heading = document.createElement('div'); heading.className = 'log-session';
-          const label = document.createElement('span'); label.className = 'file-name'; label.textContent = session;
+          const label = document.createElement('span'); label.className = 'file-name'; label.textContent = session === 'WebUI' ? 'Newsbot speaking' : session;
           const rule = document.createElement('span'); rule.className = 'session-line';
           heading.append(label, rule); output.append(heading); currentSession = session;
         }
@@ -171,14 +173,16 @@
       nextLine();
     }
 
+    followButton.addEventListener('click', () => setLogFollowing(true));
+
     function atScrollEnd() {
       return output.scrollHeight - output.clientHeight - output.scrollTop <= 2;
     }
     output.addEventListener('scroll', () => {
-      if (atScrollEnd()) followLog = true;
+      if (atScrollEnd()) setLogFollowing(true, false);
     });
     output.addEventListener('wheel', event => {
-      if (!event.ctrlKey && event.deltaY) followLog = event.deltaY > 0 && atScrollEnd();
+      if (!event.ctrlKey && event.deltaY) setLogFollowing(event.deltaY > 0 && atScrollEnd(), false);
     }, { passive: true });
     output.addEventListener('touchstart', () => setLogFollowing(false), { passive: true });
     output.addEventListener('pointerdown', event => {
@@ -250,9 +254,12 @@
     }
 
     function positionPanelToggle() {
-      panelToggle.style.setProperty('--settings-log-top', $('log-output').getBoundingClientRect().top / getPageScale() + 'px');
+      const bounds = $('log-output').getBoundingClientRect();
+      const scale = getPageScale();
+      document.body.style.setProperty('--settings-log-top', bounds.top / scale + 'px');
+      followButton.style.setProperty('--follow-log-right', (window.innerWidth - bounds.right) / scale + 20 + 'px');
     }
-    document.body.append(panelToggle);
+    document.body.append(panelToggle, followButton);
     positionPanelToggle();
     window.addEventListener('resize', positionPanelToggle);
 

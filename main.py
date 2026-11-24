@@ -422,7 +422,7 @@ def main(*, defer_if_incomplete=True, delayed_publish_file=None):
         elif log.has_problems():
             log.run_finished("WARNING", 0, 0)
         else:
-            log.block("Проверка завершена. Новых писем нет.")
+            log.block("Проверка завершена. Новых писем нет.", level="OK")
         return not any(summary) and defer_if_incomplete and not log.has_problems()
     except KeyboardInterrupt as error:
         if logging_ready:

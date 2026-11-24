@@ -28,10 +28,12 @@
           messages.push(line.type === 'header' ? line.text.slice(prefix.length) : line.text);
         } while (index < lines.length && lines[index].file === file && lines[index].block === first.block);
 
+        const visible = visibleJournalLines(first.type, first.level, messages);
+        if (!visible.length) continue;
         const row = element('div', 'preview-row ' + first.level.toLowerCase(), '');
         const time = element('span', 'time', first.time?.slice(-8) || '');
         time.title = first.time || '';
-        row.append(time, element('span', 'level', first.level), element('span', 'message', messages.join('\n')));
+        row.append(time, element('span', 'level', first.level), element('span', 'message', visible.join('\n')));
         content.append(row);
       }
     }
