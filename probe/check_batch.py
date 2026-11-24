@@ -341,7 +341,9 @@ class BatchChecks(unittest.TestCase):
 
     def test_legacy_script_entry_uses_prelaunch(self):
         with patch.object(prelaunch, "main") as launch:
-            runpy.run_path(str(harness.ROOT / "main.py"), run_name="__main__")
+            with self.assertRaises(SystemExit) as exit:
+                runpy.run_path(str(harness.ROOT / "main.py"), run_name="__main__")
+        self.assertIsNone(exit.exception.code)
         launch.assert_called_once_with()
 
     def test_integrity_combinations(self):
