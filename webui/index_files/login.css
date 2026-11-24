@@ -24,19 +24,20 @@ body.login-page {
   width: min(100%, 380px);
   height: auto;
   padding: 15px;
-  gap: 18px;
+  gap: 0;
   box-shadow: 0 20px 60px #07131ecc;
 }
 .login-form h1 { width: auto; font-size: 22px; }
 .login-form .save-button { margin-left: 0; }
 #login-error {
-  min-height: 1.5em;
+  min-height: 0;
   margin: 0;
   color: #a3382a;
   font-size: 10px;
   line-height: 1.5;
   font-weight: 400;
 }
+#login-error:not(:empty) { margin-top: 18px; }
 
 .login-row {
   display: grid;

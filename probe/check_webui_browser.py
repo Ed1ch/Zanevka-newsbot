@@ -42,6 +42,8 @@ def check_login_preview(page, url):
     assert panel.bounding_box() == dict(x=1040, y=20, width=380, height=300)
     assert form.bounding_box()["x"] == form.bounding_box()["y"] == 20
     assert form.bounding_box()["width"] == 380
+    assert page.locator("#login-error").evaluate("e => e.getBoundingClientRect().height") == 0
+    assert abs(form.bounding_box()["height"] - page.locator(".login-row").bounding_box()["height"] - 30) < 1
     assert output.evaluate("e => getComputedStyle(e).paddingTop") == "5px"
 
     files = ["01112026_120000_abcdef.txt", "02112026_120000_abcdef.txt"]
@@ -109,10 +111,12 @@ def main():
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         check_login_preview(page, args.url)
+        initial_form_height = page.locator("#login-form").bounding_box()["height"]
         page.locator('input[name="username"]').fill("browser-admin")
         page.locator('input[name="password"]').fill("wrong")
         page.get_by_role("button", name="Войти").click()
         page.locator("#login-error").filter(has_text="Неверное").wait_for()
+        assert page.locator("#login-form").bounding_box()["height"] > initial_form_height
         style = page.locator('input[name="username"]').evaluate("e => ({background:getComputedStyle(e).backgroundColor,border:getComputedStyle(e).borderColor,color:getComputedStyle(e).color})")
         login_body = page.locator('body').evaluate("e => getComputedStyle(e).backgroundImage")
         page.locator('input[name="password"]').fill("browser-offline-fixture")

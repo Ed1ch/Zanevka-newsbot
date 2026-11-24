@@ -257,9 +257,8 @@
       const bounds = $('log-output').getBoundingClientRect();
       const scale = getPageScale();
       document.body.style.setProperty('--settings-log-top', bounds.top / scale + 'px');
-      followButton.style.setProperty('--follow-log-right', (window.innerWidth - bounds.right) / scale + 20 + 'px');
     }
-    document.body.append(panelToggle, followButton);
+    document.body.append(panelToggle);
     positionPanelToggle();
     window.addEventListener('resize', positionPanelToggle);
 

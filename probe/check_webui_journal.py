@@ -110,8 +110,9 @@ def check_header(page):
         toggle = page.locator("#toggle-panel").bounding_box()
         zoom = page.locator("body").evaluate("e=>parseFloat(getComputedStyle(e).zoom)")
         assert box["width"] == toggle["width"] and box["height"] == toggle["height"]
-        assert abs((box["y"] - toggle["y"] - toggle["height"]) / zoom - 20) < 1
-        assert abs((output["x"] + output["width"] - box["x"] - box["width"]) / zoom - 20) < 1
+        assert follow.evaluate("e => e.parentElement.id") == "log-output"
+        assert abs(box["x"] - toggle["x"]) < 2
+        assert abs((output["y"] + output["height"] - box["y"] - box["height"]) / zoom - 40) < 1
         follow.click()
         assert follow.is_hidden()
         for selector in ("#run-now", "#logout"):
