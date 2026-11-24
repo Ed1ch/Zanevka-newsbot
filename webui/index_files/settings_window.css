@@ -20,7 +20,7 @@
   padding: 0;
 }
 /* Global toggle stays fixed independently of the settings window. */
-#toggle-panel { position: fixed; z-index: 40; top: calc(var(--settings-log-top, 0px) + 64px); }
+#toggle-panel { position: fixed; margin-top: 20px; z-index: 40; top: calc(var(--settings-log-top, 0px) + 64px); }
 
 .settings {
   position: fixed;

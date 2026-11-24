@@ -61,7 +61,7 @@ def check_layout(page):
         for scale in (60, 100, 200):
             page.locator("#reset-log-scale").click()
             step = -100 if scale > 100 else 100
-            for _ in range(abs(scale - 100) // 10):
+            for _ in range(abs(scale - 100) // 2):
                 page.locator("#log-output").dispatch_event("wheel", {"ctrlKey": True, "deltaY": step})
             result = page.evaluate("""() => {
               const output=document.getElementById('log-records'), zoom=parseFloat(getComputedStyle(document.body).zoom)||1;
@@ -92,6 +92,39 @@ def check_layout(page):
     page.locator("#reset-log-scale").click()
 
 
+def check_header(page):
+    def style(selector, names):
+        return page.locator(selector).evaluate("(el,names)=>names.map(n=>getComputedStyle(el)[n])", names)
+
+    for width, height in ((1366, 768), (1440, 1000)):
+        page.set_viewport_size(dict(width=width, height=height))
+        assert style(".app-header", ["minHeight", "marginBottom"]) == ["80px", "5px"]
+        assert style("#running-status", ["marginTop", "marginLeft", "marginBottom"]) == ["-7px", "3px", "0px"]
+        assert style("#toggle-panel", ["position", "marginTop"]) == ["fixed", "20px"]
+        assert style("#logout", ["marginLeft"]) == ["10px"]
+        for selector in ("#run-now", "#logout"):
+            button = page.locator(selector)
+            page.emulate_media(reduced_motion="no-preference")
+            assert style(selector, ["transitionDuration"]) == ["0.17s, 0.17s, 0.17s"]
+            page.emulate_media(reduced_motion="reduce")
+            assert style(selector, ["transitionDuration"]) == ["0s"]
+            page.mouse.move(0, 0)
+            colors = ["backgroundColor", "color", "borderColor"]
+            before = style(selector, colors)
+            box = button.bounding_box()
+            button.hover()
+            hover = style(selector, colors)
+            assert all(a != b for a, b in zip(before, hover))
+            page.mouse.down()
+            assert style(selector, colors)[0] != hover[0] and button.bounding_box() == box
+            page.mouse.move(0, 0)
+            page.mouse.up()
+            button.evaluate("e=>e.disabled=true")
+            button.hover()
+            assert style(selector, colors) == before
+            button.evaluate("e=>e.disabled=false")
+
+
 def assert_at_bottom(page):
     geometry = """e => {
       const last=[...e.querySelectorAll('.log-row')].at(-1), zoom=parseFloat(getComputedStyle(document.body).zoom)||1;
@@ -100,6 +133,79 @@ def assert_at_bottom(page):
     page.wait_for_function("distance => Math.abs((" + geometry + ")(document.getElementById('log-records'))) < 2", timeout=3000)
     distance = page.locator("#log-records").evaluate(geometry)
     assert abs(distance) < 2, distance
+
+
+def check_greeting_and_status(context, status):
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    # Freeze browser timers between explicit steps, including the polling timer.
+    page.clock.install(time=datetime(2026, 11, 24, tzinfo=timezone.utc))
+    page.clock.pause_at(datetime(2026, 11, 24, 0, 1, tzinfo=timezone.utc))
+    page.goto(URL)
+    rows = page.locator(".greeting")
+    rows.first.wait_for()
+    expected = page.locator("#log-greeting").evaluate("e=>e.content.textContent.trim().split('\\n')")
+    assert len(expected) == 7 and expected[0] == expected[-1] == "*" * len(expected[0])
+    for i in range(1, len(expected)):
+        page.clock.run_for(999)
+        assert rows.count() == i
+        page.clock.run_for(1)
+    assert rows.locator(".message").all_text_contents() == expected
+    assert set(rows.locator(".level").all_text_contents()) == {"INFO"}
+    assert set(rows.locator(".message").evaluate_all("els=>els.map(e=>getComputedStyle(e).color)")) == {"rgb(250, 254, 255)"}
+    downloaded = export(page)
+    assert all(line not in downloaded for line in expected)
+    page.evaluate("streams.at(-1).emit('resync', {})")
+    page.wait_for_function("streams.length === 2", polling=50)
+    page.clock.run_for(7000)
+    assert rows.count() == 7
+
+    page.reload()
+    rows.first.wait_for()
+    title = page.locator("#running-status")
+    busy = "Бот сейчас работает"
+    missing = "Бот остановлен, расписание запуска на вкладке CRON в настройках не задано"
+    for process, platform, enabled, task, text in [
+        ("unknown", "Unix/cron", True, "present", "Ошибка связи с API"),
+        ("idle", "Windows/manual", None, "unsupported", "Бот установлен в среде Windows, публикация новостей вручную или по задаче в планировщике"),
+        ("idle", "Unix/cron", True, "present", "Бот запущен, публикация новостей по расписанию CRON"),
+        ("idle", "Unix/cron", False, "present", "Бот остановлен, публикация новостей по расписанию отключена"),
+        ("starting", "Windows/manual", None, "unsupported", busy),
+        ("running", "Unix/cron", False, "missing", busy),
+    ] + [("idle", "Unix/cron", enabled, task, missing) for enabled in (False, True) for task in ("unknown", "missing", "ambiguous")]:
+        data = {**status, "process_state": process, "schedule": dict(platform=platform, enabled=enabled, task_state=task)}
+        page.evaluate("s=>streams.at(-1).emit('status',s)", data)
+        assert title.get_attribute("title") == text, (data, title.get_attribute("title"))
+    page.evaluate("streams.at(-1).emit('error', {})")
+    assert title.get_attribute("title") == "Ошибка связи с API"
+
+    for cause in ("manual", "starting", "running", "pagehide"):
+        page.reload()
+        rows.first.wait_for()
+        if cause == "manual":
+            assert page.evaluate("""() => {
+              document.getElementById('run-now').click();
+              return document.getElementById('running-status').title;
+            }""") == busy
+        elif cause == "pagehide":
+            page.evaluate("dispatchEvent(new PageTransitionEvent('pagehide'))")
+        else:
+            page.evaluate("s=>streams.at(-1).emit('status',s)", {**status, "process_state": cause})
+            page.evaluate("s=>streams.at(-1).emit('status',s)", status)
+        page.clock.run_for(7000)
+        assert rows.count() == 1, cause
+    for process in ("starting", "running"):
+        status["process_state"] = process
+        page.reload()
+        page.wait_for_function("streams.length === 1")
+        status["process_state"] = "idle"
+        page.evaluate("s=>streams.at(-1).emit('status',s)", status)
+        page.clock.run_for(7000)
+        assert rows.count() == 0
+    assert not errors, errors
+    page.clock.resume()
+    page.close()
 
 
 def main():
@@ -168,22 +274,24 @@ def main():
             route.fulfill(path=str(ROOT / "webui" / relative))
 
         context.route(URL + "**", route_request)
+        check_greeting_and_status(context, status)
         page = context.new_page()
         page.set_default_timeout(10000)
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.clock.set_fixed_time(datetime(2026, 10, 27, 20, 59, 59, tzinfo=timezone.utc))
         page.goto(URL)
-        message(page, "Статические подписи вкладки").wait_for()
+        page.locator(".greeting").first.wait_for()
+        assert message(page, "Статические подписи вкладки").count() == 0
         assert page.locator("#log-records .file-name").all_text_contents() == FILES + ["WebUI"]
-        assert page.locator("#log-records .log-row").count() == 7
+        assert page.locator("#log-records .log-row:not(.greeting)").count() == 6
         assert message(page, "INBOX").text_content() == "INBOX\n" + "\n".join(text[1:] for text in details)
         assert message(page, "INBOX").locator("..").locator(".time").text_content() == "14:18:01\n2026-10-23"
         assert message(page, "partial first block").text_content() == "partial first block"
         assert message(page, "BOT WARNING").text_content() == "BOT WARNING\nfirst warning\n\nsecond warning"
         assert page.locator("#log-records script").count() == 0 and page.evaluate("window.injected") is None
         assert page.locator("#log-records .log-row.error").count() == 1
-        ui_stamp = message(page, "Статические подписи вкладки").locator("..").locator(".time").text_content()
+        ui_stamp = page.locator(".greeting").first.locator(".time").text_content()
         assert ui_stamp == "13:59:59\n2026-10-27", ui_stamp
         page.clock.set_fixed_time(datetime(2026, 10, 29, 1, tzinfo=timezone.utc))
 
@@ -196,7 +304,7 @@ def main():
         emit(page, "line", late)
         assert message(page, "OK BLOCK").text_content() == "OK BLOCK\nok history\nlate OK detail\n  ✓ second live detail"
         assert message(page, "OK BLOCK").locator("..").locator("span").count() == 3
-        assert message(page, "Статические подписи вкладки").locator("..").locator(".time").text_content() == ui_stamp
+        assert page.locator(".greeting").first.locator(".time").text_content() == ui_stamp
         assert bot_lines(export(page)) == [item["text"] for item in history]
 
         for theme in ("original", "purple-edge", "deep-ocean", "dark-amethyst"):
@@ -207,6 +315,7 @@ def main():
             assert colors["success"][2] == colors["info"][2]
             assert colors["warning"][0] != colors["error"][0] != colors["info"][0]
         page.evaluate("document.documentElement.dataset.newsbotTheme='original'")
+        check_header(page)
         check_layout(page)
         if args.screenshot:
             page.locator("#log-records").evaluate("e=>e.scrollTop=0")
@@ -278,7 +387,7 @@ def main():
         snapshot["truncated"] = True
         emit(page, "resync")
         message(page, "История превышает буфер панели;").wait_for()
-        assert message(page, "Доступная история изменилась или соединение прерывалось.").count() == 1
+        assert message(page, "Доступная история изменилась или соединение прерывалось.").count() == 0
         assert page.evaluate("window.streams.at(-1).url").endswith("cursor=epoch%3A10")
         assert message(page, "OK BLOCK").text_content().count("late OK detail") == 1
         assert page.evaluate("window.streams.length") == 2
@@ -318,12 +427,15 @@ def main():
         retained = bot_lines(export(page))
         assert retained == [item["text"] for item in many[-9999:]]  # U11 consumes one physical slot.
         assert message(page, "buffer detail 10004").locator("..").locator(".time").text_content() == "14:18:01\n2026-10-23"
-        page.locator("#log-records").dispatch_event("wheel", {"deltaY": -100})
-        page.locator("#log-records").evaluate("e=>e.scrollTop=100")
+        emit(page, "status", {**status, "process_state": "running", "can_run": False})
+        output = page.locator("#log-records")
+        output.hover()
+        page.mouse.wheel(0, -1000000)
+        page.wait_for_function("document.getElementById('log-records').scrollTop === 0")
         emit(page, "line", line(FILES[2], 12000, 0, "\tmanual position retained", "OK", generation="2"))
-        assert page.locator("#log-records").evaluate("e=>e.scrollTop") == 100
-        page.locator("#run-now").click()
-        page.wait_for_function("!document.getElementById('run-now').disabled")
+        assert output.evaluate("e=>e.scrollTop") == 0
+        page.mouse.wheel(0, 1000000)
+        page.wait_for_function("() => { const e=document.querySelector('#log-records'); return e.scrollHeight-e.clientHeight-e.scrollTop<2; }")
         emit(page, "line", line(FILES[2], 13000, 0, "\ttall block actual bottom", "OK", generation="2"))
         assert_at_bottom(page)
         page.set_viewport_size({"width": 900, "height": 700})
@@ -335,27 +447,26 @@ def main():
         top_gap = page.locator("#log-records").evaluate("e=>[...e.querySelectorAll('.log-row')].at(-1).getBoundingClientRect().top-e.getBoundingClientRect().top")
         assert abs(top_gap) < 2, top_gap
         print("journal: bounded buffer, scroll, tail and resize passed", flush=True)
+        emit(page, "status", status)
         # A fresh document gets history normally, even after the previous clear.
         fresh = context.new_page(); fresh.goto(URL)
         message(fresh, "OK BLOCK").wait_for()
         assert not errors, errors
         fresh.close()
         # Observe the notice before the real navigation destroys this document.
-        notices = []
-        page.on("console", lambda item: notices.append(item.text) if item.text.startswith("journal-notice:") else None)
         page.evaluate("""() => {
           const append=Element.prototype.append;
           Element.prototype.append=function(...nodes){
             const result=append.apply(this,nodes);
             if(this.id==='log-records' && nodes.some(node=>node.textContent?.includes('[UI] Требуется вход.')))
-              console.debug('journal-notice:'+window.streams.at(-1).closed);
+              sessionStorage.setItem('journal-notice-stream-closed', String(window.streams.at(-1).closed));
             return result;
           };
         }""")
         failures.append((401, {"error": {"message": "irrelevant 401 body"}}))
         page.locator("#run-now").click()
         page.wait_for_url(URL + "login")
-        assert login and "journal-notice:true" in notices, {"login": login, "notices": notices}
+        assert login and page.evaluate("sessionStorage.getItem('journal-notice-stream-closed')") == "true"
         assert not errors, errors
         print(json.dumps({"browser": browser.version, "os": sys.platform, "checks": "blocks/history/SSE/dedupe/UI-interleave/raw-export/10ch/spacing/60-100-200/narrow-wide/themes/OK/partial/buffer/generations/clear-restore/resync/reopen/controls/validation/U01-U28/H01-H03/401/CSRF/XSS", "page_errors": errors}, ensure_ascii=False))
         browser.close()

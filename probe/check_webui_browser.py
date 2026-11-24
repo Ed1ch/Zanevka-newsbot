@@ -103,7 +103,7 @@ def main():
     args = parser.parse_args()
     assert args.fixture_root.name.startswith("newsbot-browser-")
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=args.chromium, headless=True, args=["--no-sandbox"])
+        browser = playwright.chromium.launch(executable_path=args.chromium, headless=True, ignore_default_args=["--hide-scrollbars"], args=["--no-sandbox"])
         context = browser.new_context(viewport={"width":1440,"height":1000}, accept_downloads=True)
         page = context.new_page()
         errors = []
@@ -196,7 +196,41 @@ def main():
             drag(page, selector, -18, -12)
             after = page.locator("#settings").bounding_box()
             assert abs(after["x"] - before["x"] + 18) < 1
-        for selector in ('[name="IMAP_PORT"]', "#reset-settings", "#settings-scroll", "#tab-vk"):
+        scroll = page.locator("#settings-scroll")
+        box = scroll.bounding_box()
+        x, y = box["x"] + 12, box["y"] + 20
+        before = page.locator("#settings").bounding_box()
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x - 30, y - 12, steps=5)
+        page.mouse.up()
+        after = page.locator("#settings").bounding_box()
+        assert abs(after["x"] - before["x"] + 30) < 1
+        box = scroll.bounding_box()
+        # Put enough content behind a native thin scrollbar, clear of the resize handle.
+        scroll.evaluate("e => e.style.maxHeight = '180px'")
+        assert scroll.evaluate("e => e.scrollHeight > e.clientHeight")
+        x = scroll.evaluate("e => e.getBoundingClientRect().left + (e.clientWidth + 1) * parseFloat(getComputedStyle(document.body).zoom)")
+        y = box["y"] + 20
+        assert page.evaluate("([x,y]) => document.elementFromPoint(x,y).id", [x,y]) == "settings-scroll"
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x - 25, y + 15, steps=5)
+        page.mouse.up()
+        assert page.locator("#settings").bounding_box() == after
+        scroll.evaluate("e => e.style.removeProperty('max-height')")
+        help_text = page.locator("#panel-mail .field-help")
+        x, y = help_text.evaluate("""e => {
+          const r=document.createRange(); r.selectNodeContents(e.firstChild);
+          const box=r.getBoundingClientRect(); return [box.left+1, box.top+box.height/2];
+        }""")
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + 52, y, steps=5)
+        page.mouse.up()
+        assert page.evaluate("getSelection().toString()").strip()
+        assert page.locator("#settings").bounding_box() == after
+        for selector in ('[name="IMAP_PORT"]', "#reset-settings", "#tab-vk"):
             before = page.locator("#settings").bounding_box()
             drag(page, selector, 45, 16)
             assert page.locator("#settings").bounding_box() == before
@@ -210,7 +244,17 @@ def main():
         assert page.locator("#toggle-panel").get_attribute("aria-expanded") == "false"
         page.emulate_media(reduced_motion="reduce")
         schedule = page.locator("#schedule-toggle")
-        for theme in ("purple-edge", "deep-ocean", "dark-amethyst", "original"):
+        themes = ["original", "purple-edge", "deep-ocean", "dark-amethyst"]
+        previous = second.locator("html").get_attribute("data-newsbot-theme")
+        second.close()
+        for _ in range(5):
+            page.reload()
+            theme = page.locator("html").get_attribute("data-newsbot-theme")
+            assert theme in themes and theme != previous
+            previous = theme
+        index = themes.index(previous)
+        for step in range(1, 5):
+            theme = themes[(index + step) % 4]
             page.locator("#theme-easter-egg").click()
             assert page.locator("html").get_attribute("data-newsbot-theme") == theme
             for _ in range(2):
@@ -225,8 +269,8 @@ def main():
                     assert track == "rgba(0, 0, 0, 0)"
                 assert "rgb(10, 39, 87)" not in (track, knob)
 
-        for width in (1440, 390, 320):
-            page.set_viewport_size(dict(width=width, height=1000))
+        for width in (1366, 1440, 390, 320):
+            page.set_viewport_size(dict(width=width, height=768 if width == 1366 else 1000))
             run = page.locator("#run-now").bounding_box()
             logout = page.locator("#logout").bounding_box()
             status = page.locator("#status-text").bounding_box()
@@ -235,7 +279,10 @@ def main():
             assert status["y"] + status["height"] <= description["y"] + 1
         page.set_viewport_size(dict(width=1440, height=1000))
         page.locator('#log-output').dispatch_event('wheel', {'ctrlKey':True,'deltaY':-100})
-        assert page.locator('#log-scale').text_content() == '110%'
+        assert page.locator('#log-scale').text_content() == '102%'
+        for key, expected in [('Control+=', '112%'), ('Control+-', '102%'), ('Control+0', '100%')]:
+            page.locator('#log-records').press(key)
+            assert page.locator('#log-scale').text_content() == expected
         page.locator('#reset-log-scale').click()
         assert page.locator('#log-scale').text_content() == '100%'
         page.locator('#log-filter').select_option('error')
@@ -246,6 +293,14 @@ def main():
         text = Path(download.value.path()).read_text(encoding='utf-8')
         assert '\t' + token in text
         assert '[OK] OFFLINE COMPLETE' in text
+        greeting = page.locator("#log-greeting").evaluate("e=>e.content.textContent.trim().split('\\n')")
+        real_logs = [path.read_text(encoding="utf-8") for path in journal.parent.glob("*.txt")]
+        for endpoint in ("logs/history", "logs/preview"):
+            response = context.request.get(args.url + "api/" + endpoint)
+            assert response.ok
+            real_logs.extend(row["text"] for row in response.json()["lines"])
+        for greeting_line in greeting:
+            assert all(greeting_line not in contents for contents in [text, *real_logs])
         page.locator('#clear-log').click()
         assert page.get_by_text(token,exact=False).count() == 0
         # Force an explicit resync while keeping the same document and delivery

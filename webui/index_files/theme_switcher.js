@@ -9,12 +9,10 @@
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   let busy = false;
 
-  let current = 'original';
-  try {
-    const saved = localStorage.getItem(key);
-    if (themes.includes(saved)) current = saved;
-  } catch { /* Local files can disable storage; cycling still works. */ }
-  root.dataset.newsbotTheme = current;
+  let previous, current;
+  try { previous = localStorage.getItem(key); } catch { /* Storage is optional. */ }
+  const choices = themes.filter(theme => theme !== previous);
+  changeTheme(choices[Math.floor(Math.random() * choices.length)]);
 
   function changeTheme(next) {
     current = next;

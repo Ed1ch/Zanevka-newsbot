@@ -35,7 +35,7 @@
     svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
     .icon-library { position: absolute; width: 0; height: 0; overflow: hidden; }
     .app { display: flex; flex-direction: column; width: 100%; min-height: 0; height: 100%; background: linear-gradient(115deg, #0a295de8, #061f4ef5 65%, #061b45f5); border: 1px solid #9bb7d32a; border-radius: var(--radius-window) var(--radius-window) 0 0; box-shadow: 0 28px 72px #020d2380; overflow: hidden; backdrop-filter: blur(18px); }
-    .app-header { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 59px; padding: 17px 40px 0 26px; background: linear-gradient(180deg, #88b6df0d, #88b6df00 70%); }
+    .app-header { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 80px; margin-bottom: 5px; padding: 17px 40px 0 26px; background: linear-gradient(180deg, #88b6df0d, #88b6df00 70%); }
     .identity { display: flex; align-items: center; gap: 7px; min-width: 0; }
     .brand-mark {
 		display: block;
@@ -48,7 +48,7 @@
     h1 { padding-left: 1px; width: 191px; margin: 0; font: 400 24px/1.2 var(--mono); letter-spacing: -.035em; white-space: nowrap; }
     h1 strong { font-weight: 700; }
     .status-controls { display: flex; align-items: flex-start; align-self: stretch; width: 82px; padding-top: 3px; flex-shrink: 0; }
-    .running-status { position: relative; display: inline-flex; width: 82px; height: 18px; padding: 0; background: transparent; }
+    .running-status { margin: -7px 0 0 3px; position: relative; display: inline-flex; width: 82px; height: 18px; padding: 0; background: transparent; }
     .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
     .running-status.paused { color: #f5c0b8; background: #da2f1e6b; border-color: #ffd27736; }
     .header-actions { display: flex; align-items: center; gap: 10px; }
@@ -75,9 +75,10 @@
     .run-controls { display: flex; align-items: center; justify-content: flex-end; gap: 30px; transform: translateY(-1px); flex-shrink: 0; flex: 1; }
     .run-actions { display: flex; gap: 8px; }
     .run-button svg { width: 16px; height: 16px; }
-    .run-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; opacity: .902; height: 36px; padding: 0 12px; border: 1.5px solid; border-radius: 999px; background: transparent; color: #f6f5f5; font-size: 12px; white-space: nowrap;}
-    #logout { aspect-ratio: 1; padding: 0; }
-    .run-button:hover { background: #00000014; }
+    .run-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; opacity: .902; height: 36px; padding: 0 12px; border: 2px solid; border-radius: 999px; background: transparent; color: #f6f5f5; font-size: 12px; white-space: nowrap; transition: background-color 170ms ease, color 170ms ease, border-color 170ms ease; }
+    #logout { margin-left: 10px; aspect-ratio: 1; padding: 0; }
+    .run-button:enabled:hover { background-color: #c7ddf51a; color: white; border-color: var(--cyan); }
+    .run-button:enabled:active { background-color: #c7ddf533; }
     .log-toolbar {
 	  position: absolute;
 	  z-index: 2;
@@ -101,7 +102,7 @@
     .log-control { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 4px 0; border: 0; border-radius: 999px; color: #d4def5; background: transparent; font-size: 12px; padding-bottom: 2px; padding-top: 2px; padding-left: 10px; padding-right: 6px; margin-right: -5px; margin-left: -3px;}
     .log-control img { display: block; flex-shrink: 0; padding-top: 2px;padding-left: 0px;margin-left: -3px;}
     .log-control:active { background: #00000026; }
-    .log-panel-toggle { position: absolute; top: 64px; right: 34px; width: 32px; height: 32px; padding: 0; z-index: 2; margin-top: -8px; }
+    .log-panel-toggle { position: absolute; top: 64px; right: 34px; width: 32px; height: 32px; padding: 0; z-index: 2; }
 	.log-scale {
 	  white-space: nowrap;
 	}
@@ -198,6 +199,7 @@
 	.log-row .time { width: 10ch; white-space: pre; color: #b7c8de; }
 	.log-row .level { font-size: calc(10px * var(--log-scale, 1)); letter-spacing: .045em; padding-top: 2px; opacity: .95; }
 	.log-row .message { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+	.log-row.greeting .message { color: rgb(250, 254, 255); }
 	.log-row.success .level,
 	.log-row.success .message { color: var(--green); }
 	.log-row.warning .level,

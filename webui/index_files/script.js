@@ -13,6 +13,7 @@
     let windowGesture = null, ignoreTabClick = false, logScale = 100;
     let serverStatus = null, connected = false, requestPending = false, source = null;
     let syncing = false, cursor = null, lastDiagnostic = '';
+    let historyReady = false, greetingPending = true, greetingTimer;
     const delivered = new Map();
     const apiBase = new URL('api/', document.baseURI);
     const workInputs = inputs.filter(input => !input.name.startsWith('DEMO_'));
@@ -103,6 +104,7 @@
           heading.append(label, rule); output.append(heading); currentSession = session;
         }
         const row = document.createElement('div'); row.className = 'log-row ' + record.level + (record.emphasis ? ' emphasis' : '');
+        if (record.greeting) row.classList.add('greeting');
         const stamp = record.time.match(/^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)$/);
         const time = stamp ? stamp[2] + '\n' + stamp[1] : record.time + '\n' + (record.date || '');
         for (const [className, text] of [['time', time], ['level', record.rawLevel || levelLabels[record.level]], ['message', record.message]]) {
@@ -153,9 +155,30 @@
       appendRecord({ ...currentStamp(), level, message: '[UI] ' + message, undo });
     }
 
-    // Any deliberate manual navigation pauses following until the user resumes it.
+    function stopGreeting() {
+      greetingPending = false;
+      clearTimeout(greetingTimer);
+    }
+
+    function startGreeting() {
+      if (!greetingPending || !historyReady || !connected || serverStatus?.process_state !== 'idle') return;
+      greetingPending = false;
+      const lines = $('log-greeting').content.textContent.trim().split('\n');
+      function nextLine() {
+        appendRecord({ ...currentStamp(), level: 'info', message: lines.shift(), greeting: true });
+        if (lines.length) greetingTimer = setTimeout(nextLine, 1000);
+      }
+      nextLine();
+    }
+
+    function atScrollEnd() {
+      return output.scrollHeight - output.clientHeight - output.scrollTop <= 2;
+    }
+    output.addEventListener('scroll', () => {
+      if (atScrollEnd()) followLog = true;
+    });
     output.addEventListener('wheel', event => {
-      if (!event.ctrlKey && event.deltaY) setLogFollowing(false);
+      if (!event.ctrlKey && event.deltaY) followLog = event.deltaY > 0 && atScrollEnd();
     }, { passive: true });
     output.addEventListener('touchstart', () => setLogFollowing(false), { passive: true });
     output.addEventListener('pointerdown', event => {
@@ -282,7 +305,20 @@
       const tab = event.target.closest('[role="tab"]');
       const activeTabHandle = tab && tab.dataset.tab === activeTab;
       if (!resize && !activeTabHandle &&
-          event.target.closest('button, input, select, textarea, label, a, [contenteditable], .settings-scroll')) return;
+          event.target.closest('button, input, select, textarea, label, a, [contenteditable]')) return;
+      const scroll = event.target.closest('.settings-scroll');
+      if (scroll && !resize) {
+        const rect = scroll.getBoundingClientRect();
+        if (event.clientX >= rect.left + scroll.clientWidth * getPageScale()) return;
+        // Text can occupy only part of a heading or paragraph. Keep its glyphs selectable.
+        const range = document.createRange();
+        for (const node of event.target.childNodes) {
+          if (node.nodeType !== Node.TEXT_NODE) continue;
+          range.selectNodeContents(node);
+          if ([...range.getClientRects()].some(box => event.clientX >= box.left && event.clientX < box.right &&
+              event.clientY >= box.top && event.clientY < box.bottom)) return;
+        }
+      }
       const handle = resize || tab || event.target;
       windowGesture = {
         ...settingsWindow, pointerId: event.pointerId, handle,
@@ -356,7 +392,7 @@
     });
     $('download-log').addEventListener('click', () => {
       uiLog('Журнал подготовлен к загрузке.');
-      const text = records.map(record => record.rawText !== undefined ? record.rawText : record.time + ' [' + levelLabels[record.level] + '] ' + record.message).join('\r\n') + '\r\n';
+      const text = records.filter(record => !record.greeting).map(record => record.rawText !== undefined ? record.rawText : record.time + ' [' + levelLabels[record.level] + '] ' + record.message).join('\r\n') + '\r\n';
       const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
       const link = document.createElement('a'); link.href = url; link.download = currentStamp().session;
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -464,7 +500,16 @@
       $('running-status').dataset.state = state;
       $('running-status').classList.toggle('is-running', busy);
       $('status-text').textContent = process === 'unknown' || !serverStatus ? 'Ошибка' : schedule?.platform === 'Windows/manual' && !busy ? 'Windows/manual' : {running:'Работает',stopped:'Остановлен'}[state];
-      $('running-status').title = process === 'unknown' ? 'Состояние неизвестно; связь с API не подтверждена' : busy ? 'Бот выполняется или запускается' : schedule?.detail || 'Бот не выполняется';
+      let title;
+      if (!connected || !serverStatus || process === 'unknown') title = 'Ошибка связи с API';
+      else if (busy) title = 'Бот сейчас работает';
+      else if (schedule?.platform === 'Windows/manual') title = 'Бот установлен в среде Windows, публикация новостей вручную или по задаче в планировщике';
+      else if (confirmedSchedule) title = 'Бот запущен, публикация новостей по расписанию CRON';
+      else if (schedule?.task_state === 'present' && schedule.enabled === false) title = 'Бот остановлен, публикация новостей по расписанию отключена';
+      else title = 'Бот остановлен, расписание запуска на вкладке CRON в настройках не задано';
+      $('running-status').title = title;
+      if (busy) stopGreeting();
+      else startGreeting();
       $('schedule-toggle').setAttribute('aria-checked', String(schedule?.enabled === true));
       $('schedule-toggle').disabled = !connected || !schedule || schedule.platform === 'Windows/manual';
       $('run-now').disabled = !connected || requestPending || !serverStatus?.can_run;
@@ -568,7 +613,6 @@
       });
       source.addEventListener('resync', () => {
         source.close();
-        uiLog('Доступная история изменилась или соединение прерывалось. Загружается доступная часть журнала; прежние строки сохранены.', 'warning');
         syncHistory().catch(showError);
       });
       source.onerror = async () => {
@@ -586,6 +630,7 @@
         for (const line of history.lines) receiveLine(line);
         if (history.truncated) uiLog('История превышает буфер панели; показан доступный конец журналов.', 'warning');
         cursor = history.cursor; connectEvents();
+        historyReady = true; startGreeting();
       } finally { syncing = false; }
     }
 
@@ -600,7 +645,7 @@
 	});
     $('log-output').addEventListener('wheel', event => {
       if (!event.ctrlKey || !event.deltaY) return;
-      event.preventDefault(); setLogScale(logScale + (event.deltaY < 0 ? 10 : -10));
+      event.preventDefault(); setLogScale(logScale + (event.deltaY < 0 ? 2 : -2));
     }, { passive: false });
     output.addEventListener('keydown', event => {
       if (!event.ctrlKey || !['+', '=', '-', '_', '0'].includes(event.key)) return;
@@ -718,7 +763,6 @@
         await refreshStatus();
         try { applySettings(await api('settings')); } catch (error) { showError(error); }
         await syncHistory();
-        uiLog('Интервал и часовой пояс доступны только при достоверном чтении cron. Статические подписи вкладки будут уточнены отдельно.');
       } catch (error) {
         connected = false; updateStatus(); showError(error);
         setTimeout(initialize, 3000);
@@ -726,5 +770,5 @@
     }
     renderLog(); updateStatus(); initialize();
     setInterval(refreshStatus, 2000);
-    window.addEventListener('pagehide', () => source?.close());
+    window.addEventListener('pagehide', () => { stopGreeting(); source?.close(); });
   })();
