@@ -1,21 +1,5 @@
 # AGENTS.md
 
-## Repository safety rules — mandatory
-
-**Branch protection is a hard requirement, not a workflow preference.**
-
-1. Never modify `main` by transferring, copying, merging, cherry-picking, recreating, or manually reimplementing changes from another branch unless the user explicitly authorizes that specific transfer into `main`.
-2. Authorization must be clear and unambiguous. Requests such as "fix this", "implement this feature", "use the tested solution", "finish the task", "commit the changes", or "the test branch works" do NOT authorize modifying `main` using changes from another branch.
-3. Before any cross-branch transfer into `main`, explicitly identify the source branch, target branch (`main`), and changes to be transferred. Ask the user for confirmation and wait for their response.
-4. Never infer authorization from technical readiness, successful tests, previous discussions, or the fact that a solution has already been implemented in a working branch.
-5. If the requested target branch is ambiguous, ask the user. Do not silently default to `main`.
-6. Do not bypass these rules by manually copying code instead of performing a Git merge or cherry-pick.
-7. Reading, comparing and reviewing branches is allowed without approval. Modifying `main` using changes from another branch is not.
-8. Before any GitHub write operation, verify that the destination branch matches the user's authorization.
-9. Never create or use a repository fork without the user's explicit permission.
-
-**When in doubt, stop and ask.**
-
 ## Project
 
 Zanevka Newsbot is one project with two components:
@@ -32,7 +16,14 @@ Project context is maintained in `gpt_context/`:
 - `gpt_context/CONTEXT.md` — current development context.
 - `gpt_context/DECISIONS.md` — durable architectural decisions.
 - `webui/README.md` — current UI structure and behavior.
-- `webui/AGENTS.md` — additional rules for work inside `webui/`.
+
+## Sources of truth
+
+- Current source code describes the actual implementation. Use the current target branch, not stale chat context.
+- Approved architectural decisions define mandatory project constraints. Consult `gpt_context/DECISIONS.md` before non-trivial changes.
+- Consult only the other documentation relevant to the task, using the document list above.
+- Inspect affected source files, interfaces and their usages before making changes. For integration tasks, inspect both Python and WebUI before proposing or changing interfaces.
+- If implementation conflicts with an approved architectural decision, report the discrepancy to the owner. Do not silently change either the implementation or the decision.
 
 ## Project scale and engineering principles
 
@@ -41,7 +32,7 @@ Zanevka Newsbot is a small, internal administrative application, not a commercia
 ### Scale and deployment
 
 - Expected users: approximately 3 trusted administrators.
-- Expected deployment: one application instance on a single office server.
+- Deployment: one application instance on Ubuntu RELEASE.
 - Workload: small, periodic batches of incoming news, typically processed every 2 hours.
 - The application is not designed for public registration, multi-tenancy, high traffic, or horizontal scaling.
 - The primary goal is a reliable, complete, maintainable tool that its administrators can understand and support.
@@ -63,38 +54,6 @@ Zanevka Newsbot is a small, internal administrative application, not a commercia
 The project succeeds when the agreed functionality works reliably in the target environment, can be verified with practical tests, and remains maintainable without dedicated development or DevOps personnel.
 
 Do not optimize for enterprise-scale benchmarks, architectural sophistication, or technology adoption as goals in themselves.
-
-## Source of truth
-
-For implementation details, use this priority:
-
-1. Current source code in the repository.
-2. `gpt_context/ARCHITECTURE.md` and `gpt_context/DECISIONS.md`.
-3. `gpt_context/CONTEXT.md` and the relevant component README.
-4. Current conversation.
-
-Do not assume that old chat context reflects the current code.
-
-Before making a non-trivial change:
-
-1. Read `gpt_context/ARCHITECTURE.md`.
-2. Read `gpt_context/CONTEXT.md`.
-3. Read `gpt_context/DECISIONS.md`.
-4. Inspect the actual affected source files.
-5. Search for usages of functions/interfaces being changed.
-6. For tasks involving `webui/`, also read `webui/AGENTS.md` and `webui/README.md` and inspect affected UI files.
-7. For integration tasks, inspect both the Python and WebUI sides before proposing interfaces or changing code.
-
-## Documentation policy
-
-- Documentation describes only the current, implemented state of the project.
-- Do not document planned features, unimplemented functionality, hypothetical architecture or future development stages as part of the project documentation.
-- Planned changes and development tasks belong in GitHub Issues.
-- Implementation history belongs in Git history and pull requests.
-- Each subject must have a single authoritative document. Use links instead of duplicating its contents.
-- When implementation changes, update the affected documentation in the same change.
-- Remove obsolete descriptions, instructions and references instead of accumulating historical amendments.
-- Do not claim successful testing, deployment or platform compatibility without verification.
 
 ## Development workflow
 
@@ -119,7 +78,6 @@ Review the diff for regressions, broken contracts, unnecessary complexity and du
 - Prefer small, targeted changes over unnecessary rewrites.
 - Preserve existing behavior unless the task explicitly requires changing it.
 - Keep Python processing logic and UI presentation logic separate. Avoid modifying the other component for an unrelated task.
-- Treat existing UI data, run simulations, schedule status and settings storage as **mock behavior**, not as evidence of a working backend.
 - Do not introduce an API, server framework, data contract or process-management mechanism without examining existing code and agreeing a concrete integration plan.
 - Do not silently change architecture or public contracts between modules.
 - Search for existing functionality before adding a helper or module.
@@ -129,7 +87,7 @@ Review the diff for regressions, broken contracts, unnecessary complexity and du
 - Do not introduce new architectural patterns, base classes, factories, async code or abstraction layers unless they solve a concrete problem in the current task.
 - Do not hardcode credentials, tokens or other secrets.
 - Keep temporary files out of Git.
-- Update relevant `gpt_context/*.md` files when architecture, important behavior or durable decisions change; update `webui/README.md` for substantial UI behavior changes.
+
 - Do not invent APIs, data structures or project behavior. Inspect the actual code first.
 - When uncertain, state the uncertainty rather than guessing.
 
@@ -160,26 +118,48 @@ VK objects may occur inside nested `attachments`. Preserve recursive attachment 
 
 `prelaunch.py` owns the shared process lock and external launch mode. `main.py` is the single batch orchestration layer; `integrity_check.py` returns a pure completeness report. External callers must use `prelaunch.main()` so the lock covers processing and cleanup. Domain-specific parsing, VK processing and WordPress logic remain in their relevant modules.
 
-## Git
+## WebUI development
 
-GitHub is the canonical repository for the source code.
+- Consult `webui/README.md` and relevant architectural decisions and contracts. Inspect affected HTML, CSS and JavaScript together, including their dependencies.
+- Preserve existing visual design, colors, dimensions, layout and behavior unless explicitly requested otherwise, including journal filters, zoom, scrolling, tabs, floating settings window, switches and themes.
+- Do not rewrite event handlers, styles or DOM structure for cosmetic refactoring.
+- Do not modify backend code for purely visual changes, or vice versa.
+- Do not introduce frontend frameworks or dependencies without justification and approval.
+- Run, status, operational settings and journals use the Flask/Waitress API. Do not replace real API behavior with simulations or fabricated states, or store operational settings in localStorage.
+- Do not store secrets in localStorage, source code or Git. Preserve login, cookie-session and CSRF protections; settings GET returns only secret-presence indicators.
+- For behavior changes, identify regression risks and verify affected browser scenarios and related controls. Review the diff for unrelated changes.
 
-**Do not transfer code or other changes from test/working branches into `main` without the user's explicit instruction.**
+## Documentation policy
 
-- A request to write code, test it, or commit it is not permission to merge into `main`.
-- Never merge, cherry-pick, or otherwise bring a test/working branch into `main` on your own initiative.
-- Once changes are ready, report the branch and commit, then wait for the user's direct approval before updating `main` with those changes.
+- Documentation describes only the current, implemented state of the project.
+- Do not document planned features, unimplemented functionality, hypothetical architecture or future development stages as part of the project documentation.
+- Planned changes and development tasks belong in GitHub Issues.
+- Implementation history belongs in Git history and pull requests.
+- Each subject must have a single authoritative document. Use links instead of duplicating its contents.
+- When implementation changes, update the affected documentation in the same change.
+- Remove obsolete descriptions, instructions and references instead of accumulating historical amendments.
+- Do not claim successful testing, deployment or platform compatibility without verification.
 
-Commit meaningful, reviewable states. Avoid unrelated changes in the same commit.
+## Git and repository safety
 
-Never commit secrets or local-only configuration.
+GitHub is the canonical repository for source code and documentation.
 
-Never create or use a GitHub fork of this repository unless the user explicitly asks you to do so.
+- Codex may commit and push to the designated working branch within an approved task without separate approval for each commit or push.
+- Verify the destination branch, scope, diff and absence of secrets before writing or pushing. If the target branch is unclear, ask before modifying files.
+- **Do not transfer code or other non-documentation changes from a working branch into `main` without explicit owner approval of the specific source branch, target branch and changes.** A request to implement, test, commit or push a change is not authorization to merge it into `main`. Report the branch and commit and wait for approval. This applies equally to merge, cherry-pick, copying, recreating or manually reimplementing changes.
+- Creating PRs and merging without separate approval is permitted only for documentation-only changes within the approved task. Before merge, confirm the diff contains no code, configuration, CI, scripts or other operational files and that any applicable CI checks have passed. This does not waive approval of the documentation change itself where required, including architectural decisions.
+- Direct changes to `main` require explicit authorization for the specific change. Force pushes, deployment and changes to production configuration require separate explicit approval.
+- Commit meaningful, reviewable states. Avoid unrelated changes in the same commit. Never commit secrets or local-only configuration.
+- Never create or use a repository fork without explicit owner permission, including as a fallback when direct repository access is unavailable.
 
-Do not treat a fork as a fallback when direct changes to the repository or branch are unavailable. Ask the user before creating a fork.
+**When in doubt, stop and ask.**
 
 ## Environment
 
-The project is developed on Windows 10 with Python 3.13. Keep compatibility with the existing environment unless a task explicitly requires otherwise.
-
-Target Windows 10 and Unix (primarily Debian Linux and FreeBSD) from a single codebase. Avoid OS-specific file paths and scheduling assumptions in shared application logic. Configure periodic runs externally (Windows Task Scheduler or Unix cron); verify Python dependencies, Pandoc and filesystem behavior on each target platform before claiming compatibility.
+- Development and testing are performed in Codex Cloud.
+- GitHub is the canonical repository.
+- Ubuntu RELEASE (`mcpv3release`) is the deployment and operational environment.
+- No persistent local development environment is maintained.
+- Do not develop or modify application source code directly on RELEASE.
+- Scheduled Newsbot runs are managed externally through cron.
+- Preserve cross-platform compatibility unless the owner explicitly changes the supported-platform policy. Avoid OS-specific assumptions in shared application logic; verify dependencies, Pandoc and filesystem behavior on each platform before claiming compatibility.
