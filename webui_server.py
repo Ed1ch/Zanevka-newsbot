@@ -295,33 +295,50 @@ class LogHub:
                     subscriber.put_nowait({"id": event["id"], "kind": "resync",
                                            "data": {"reason": "slow_client"}})
 
+    def _forget_files(self, names):
+        if not names:
+            return
+        self.lines = deque(line for line in self.lines if line["file"] not in names)
+        self.bytes = sum(len(line["text"].encode("utf-8")) for line in self.lines)
+        for name in names:
+            del self.files[name]
+        self.emit("resync", {"reason": "files_changed"})
+
     def _discover(self):
         try:
             stamp = self.directory.stat().st_mtime_ns
+            if stamp == self.directory_stamp:
+                return
+            entries = [path for path in self.directory.iterdir()
+                if JOURNAL_NAME.fullmatch(path.name) and not path.is_symlink() and path.is_file()]
         except FileNotFoundError:
-            stamp = None
-        if stamp == self.directory_stamp:
+            self.directory_stamp = None
+            self._forget_files(set(self.files))
             return
-        entries = [] if stamp is None else [path for path in self.directory.iterdir()
-            if JOURNAL_NAME.fullmatch(path.name) and not path.is_symlink() and path.is_file()]
         self.directory_stamp = stamp
         entries.sort(key=lambda path: _journal_order(path.name))
-        names = {path.name for path in entries[-10:]}
-        removed = set(self.files) - names
-        if removed:
-            self.lines = deque(line for line in self.lines if line["file"] not in removed)
-            self.bytes = sum(len(line["text"].encode("utf-8")) for line in self.lines)
-            for name in removed:
-                del self.files[name]
-            self.emit("resync", {"reason": "files_changed"})
-        for path in entries[-10:]:
-            if path.name not in self.files:
-                info = path.stat()
-                self.files[path.name] = {"path": path, "offset": 0, "pending": b"",
+        selected = {}
+        for path in reversed(entries):
+            if len(selected) == 10:
+                break
+            state = self.files.get(path.name)
+            if state is None:
+                try:
+                    info = path.stat()
+                except FileNotFoundError:
+                    # Cleanup may remove an entry after directory enumeration.
+                    self.directory_stamp = None
+                    continue
+                state = {"path": path, "offset": 0, "pending": b"",
                     "inode": (info.st_dev, info.st_ino),
                     "generation": f"{path.name}:{info.st_dev}:{info.st_ino}",
                     "context": {"time": None, "level": "INFO", "block": None},
                     "discard": False, "initial": True}
+            selected[path.name] = state
+        self._forget_files(set(self.files) - selected.keys())
+        for name in reversed(selected):
+            if name not in self.files:
+                self.files[name] = selected[name]
 
     def _line(self, state, raw, offset):
         text = raw.rstrip(b"\r").decode("utf-8", errors="replace")
@@ -343,11 +360,16 @@ class LogHub:
     def poll(self):
         with self.lock:
             self._discover()
-            for state in self.files.values():
+            for state in tuple(self.files.values()):
                 path = state["path"]
                 if path.is_symlink():
                     raise OSError("Ссылка вместо журнала.")
-                info = path.stat()
+                try:
+                    info = path.stat()
+                except FileNotFoundError:
+                    self.directory_stamp = None
+                    self._forget_files({path.name})
+                    continue
                 if (info.st_dev, info.st_ino) != state["inode"] or info.st_size < state["offset"]:
                     self.directory_stamp = None
                     state["offset"], state["pending"] = 0, b""
@@ -366,9 +388,14 @@ class LogHub:
                     # On first discovery scan once to EOF before serving the
                     # snapshot; never allocate the entire file or rescan it.
                     # Each individual Windows handle is still short-lived.
-                    with path.open("rb") as stream:
-                        stream.seek(state["offset"])
-                        chunk = stream.read(min(budget, 65536))
+                    try:
+                        with path.open("rb") as stream:
+                            stream.seek(state["offset"])
+                            chunk = stream.read(min(budget, 65536))
+                    except FileNotFoundError:
+                        self.directory_stamp = None
+                        self._forget_files({path.name})
+                        break
                     if not chunk:
                         break
                     budget -= len(chunk)

@@ -198,7 +198,10 @@ class APIChecks(unittest.TestCase):
             done = False
             def poll(self): return 0 if self.done else None
         child = Child()
-        with patch.object(api.subprocess, "Popen", return_value=child) as popen, patch.object(api.BotControl, "_watch"):
+        # This test owns the bot child only, not the Unix crontab subprocess.
+        with patch.object(api.BotControl, "schedule", return_value={}), \
+                patch.object(api.subprocess, "Popen", return_value=child) as popen, \
+                patch.object(api.BotControl, "_watch"):
             first = self.mutation("/api/run")
             self.assertEqual(first.status_code, 202, first.data)
             self.assertEqual(self.client.get("/api/status").json["process_state"], "starting")
@@ -401,6 +404,81 @@ class ReaderChecks(unittest.TestCase):
         self.hub.poll()
         self.assertEqual(reconnect.get_nowait()["kind"], "resync")
         self.hub.unsubscribe(reconnect)
+
+    def test_missing_cached_journal_resync_and_continue(self):
+        paths = [self.journal(i) for i in range(11)]
+        for path in paths:
+            path.write_text("2026-10-23 12:00:00 [INFO] header\n", encoding="utf-8")
+        self.hub.poll()
+        self.assertNotIn(paths[0].name, self.hub.snapshot()["files"])
+        client = self.hub.subscribe(self.hub.cursor())
+        paths[-1].unlink()
+        # Simulate an unchanged directory mtime despite deletion.
+        self.hub.directory_stamp = self.hub.directory.stat().st_mtime_ns
+        with paths[-2].open("ab") as stream:
+            stream.write(b"\tnew detail\n")
+        self.hub.poll()
+        snapshot = self.hub.snapshot()
+        self.assertNotIn(paths[-1].name, snapshot["files"])
+        self.assertFalse(any(line["file"] == paths[-1].name for line in snapshot["lines"]))
+        self.assertTrue(any(line["text"] == "\tnew detail" for line in snapshot["lines"]))
+        self.assertEqual(self.hub.bytes, sum(len(line["text"].encode("utf-8")) for line in snapshot["lines"]))
+        events = []
+        while not client.empty():
+            events.append(client.get_nowait()["kind"])
+        self.assertIn("resync", events)
+        self.assertNotIn("diagnostic", events)
+        self.hub.poll()
+        self.assertEqual(self.hub.snapshot()["files"], [path.name for path in paths[:-1]])
+        self.assertTrue(any(line["file"] == paths[0].name for line in self.hub.snapshot()["lines"]))
+        self.hub.unsubscribe(client)
+
+    def test_journal_disappears_during_discovery(self):
+        gone, survivor = self.journal(1), self.journal(2)
+        for path in (gone, survivor):
+            path.write_text("2026-10-23 12:00:00 [INFO] header\n", encoding="utf-8")
+        original_is_file = Path.is_file
+
+        def is_file(path):
+            result = original_is_file(path)
+            if path == gone and result:
+                path.unlink()
+            return result
+
+        with patch.object(Path, "is_file", is_file):
+            self.hub.poll()
+        self.assertEqual(self.hub.snapshot()["files"], [survivor.name])
+        self.assertEqual(len(self.hub.snapshot()["lines"]), 1)
+
+    def test_journal_disappears_before_open_but_access_errors_propagate(self):
+        gone, survivor = self.journal(1), self.journal(2)
+        for path in (gone, survivor):
+            path.write_text("2026-10-23 12:00:00 [INFO] header\n", encoding="utf-8")
+        self.hub.poll()
+        for path in (gone, survivor):
+            with path.open("ab") as stream:
+                stream.write(b"\tnew detail\n")
+        original_open = Path.open
+
+        def open_after_deletion(path, *args, **kwargs):
+            if path == gone:
+                path.unlink()
+            return original_open(path, *args, **kwargs)
+
+        client = self.hub.subscribe(self.hub.cursor())
+        with patch.object(Path, "open", open_after_deletion):
+            self.hub.poll()
+        snapshot = self.hub.snapshot()
+        self.assertEqual(snapshot["files"], [survivor.name])
+        self.assertEqual([line["text"] for line in snapshot["lines"]],
+                         ["2026-10-23 12:00:00 [INFO] header", "\tnew detail"])
+        self.assertEqual(client.get_nowait()["kind"], "resync")
+        self.hub.unsubscribe(client)
+        with survivor.open("ab") as stream:
+            stream.write(b"\tmore\n")
+        with patch.object(Path, "open", side_effect=PermissionError("denied")):
+            with self.assertRaises(PermissionError):
+                self.hub.poll()
 
     def test_slow_subscriber_is_bounded_and_does_not_block_others(self):
         slow = self.hub.subscribe(self.hub.cursor())

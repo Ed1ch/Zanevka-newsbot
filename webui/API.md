@@ -43,6 +43,9 @@ Events after that cursor replay from a bounded ring, then continue live.
 An expired/foreign cursor, changed/deleted file or slow client yields `resync`
 with `{reason}`; client obtains a new history snapshot, deduplicates identities
 already seen, preserves displayed/cleared lines and resumes at its cursor.
+A journal removed during discovery or reading is dropped from server history
+without a read-error diagnostic; the directory is rediscovered on the next poll
+if needed. Other filesystem errors still reach the reader's error handler.
 Heartbeat comments every 10 seconds; authentication checked at least every
 second, including logout/password change/expiry. One reader polls every 0.5s;
 each connection owns only a bounded event queue, never its own file reader.
