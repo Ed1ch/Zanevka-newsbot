@@ -46,6 +46,7 @@ def message(page, text):
 def export(page):
     with page.expect_download() as download:
         page.locator("#download-log").click()
+    assert download.value.suggested_filename == "newsbot-log.txt"
     text = Path(download.value.path()).read_bytes().decode("utf-8")
     assert "[UI] Журнал подготовлен к загрузке." in text
     return text
@@ -103,6 +104,7 @@ def check_header(page):
         assert style("#running-status", ["marginTop", "marginLeft", "marginBottom"]) == ["-7px", "3px", "0px"]
         assert style("#toggle-panel", ["position", "marginTop"]) == ["fixed", "20px"]
         assert style("#logout", ["marginLeft"]) == ["10px"]
+        assert style(".identity-description", ["color", "opacity"]) == style(".schedule-toggle", ["color", "opacity"])
         output = page.locator("#log-output").bounding_box()
         follow = page.get_by_role("button", name="К последнему сообщению")
         page.locator("#log-records").dispatch_event("wheel", {"deltaY": -100})
@@ -112,7 +114,7 @@ def check_header(page):
         assert box["width"] == toggle["width"] and box["height"] == toggle["height"]
         assert follow.evaluate("e => e.parentElement.id") == "log-output"
         assert abs(box["x"] - toggle["x"]) < 2
-        assert abs((output["y"] + output["height"] - box["y"] - box["height"]) / zoom - 40) < 1
+        assert abs((output["y"] + output["height"] - box["y"] - box["height"]) / zoom - 80) < 1
         follow.click()
         assert follow.is_hidden()
         for selector in ("#run-now", "#logout"):
@@ -158,7 +160,11 @@ def check_greeting_and_status(context, status):
     page.clock.install(time=datetime(2026, 11, 24, tzinfo=timezone.utc))
     page.clock.pause_at(datetime(2026, 11, 24, 0, 1, tzinfo=timezone.utc))
     page.goto(URL)
+    page.wait_for_function("streams.length === 1")
     rows = page.locator(".greeting")
+    page.clock.run_for(1999)
+    assert rows.count() == 0
+    page.clock.run_for(1)
     rows.first.wait_for()
     expected = page.locator("#log-greeting").evaluate("e=>e.content.textContent.trim().split('\\n')")
     assert len(expected) == 7 and expected[0] == expected[-1] == "*" * len(expected[0])
@@ -177,6 +183,7 @@ def check_greeting_and_status(context, status):
     assert rows.count() == 7
 
     page.reload()
+    page.clock.run_for(2000)
     rows.first.wait_for()
     title = page.locator("#running-status")
     busy = "Бот сейчас работает"
@@ -197,6 +204,7 @@ def check_greeting_and_status(context, status):
 
     for cause in ("manual", "starting", "running", "pagehide"):
         page.reload()
+        page.clock.run_for(2000)
         rows.first.wait_for()
         if cause == "manual":
             assert page.evaluate("""() => {

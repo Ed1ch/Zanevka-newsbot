@@ -73,7 +73,7 @@
 					<option value="error">Ошибки</option>
 				  </select>
 
-				  <button type="button" class="log-filter-button" id="log-filter-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="log-filter-menu">
+				  <button type="button" class="log-filter-button" id="log-filter-button" title="Фильтрация лога по типам сообщений" aria-haspopup="listbox" aria-expanded="false" aria-controls="log-filter-menu">
 					<span class="log-filter-button-label">Все сообщения</span>
 				  </button>
 
@@ -84,11 +84,11 @@
 				  </div>
 				</div>
 			
-		  </label><button type="button" class="log-control" id="download-log">
+		  </label><button type="button" class="log-control" id="download-log" title="Загрузка файла лога">
 				<img src="index_files/download.svg" alt="">
 				<span>Загрузить</span>
 			</button>
-			<button type="button" class="log-control" id="clear-log">
+			<button type="button" class="log-control" id="clear-log" title="Очистить окно лога">
 				<img src="index_files/eraser.svg" alt="">
 				<span>Очистить</span>
 			</button>
@@ -202,7 +202,7 @@
   <div id="logout-error" class="toast" role="alert"></div>
   <template id="log-greeting">
 ************************************************************************************************************
-Это небольшой python-бот для автоматического размещения новостей на zanevkaorg.ru
+Это лог Newsbot, тут отображаются результаты работы бота и диагностические сообщения. Логи старше 30 дней автоматически удаляются
 Вкладки внизу открывают настройки бота. За пустое место на вкладке окно можно таскать
 Двойной клик по активной вкладке или одиночный клик вне окна закрывает настройки
 Ctrl+колесико мыши меняет масштаб лога

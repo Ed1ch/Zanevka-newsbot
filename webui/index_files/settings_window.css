@@ -22,7 +22,7 @@
 /* Global toggle stays fixed independently of the settings window. */
 #toggle-panel { position: fixed; margin-top: 20px; z-index: 40; top: calc(var(--settings-log-top, 0px) + 64px); }
 /* Anchor the scroll button to the log viewport, horizontally aligned with the toggle. */
-#follow-log { position: absolute; top: auto; bottom: 40px; margin-top: 0; z-index: 4; }
+#follow-log { position: absolute; top: auto; bottom: 80px; margin-top: 0; z-index: 4; }
 
 .settings {
   position: fixed;

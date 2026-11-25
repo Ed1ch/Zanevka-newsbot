@@ -170,7 +170,7 @@
         appendRecord({ ...currentStamp(), level: 'info', message: lines.shift(), greeting: true });
         if (lines.length) greetingTimer = setTimeout(nextLine, 1000);
       }
-      nextLine();
+      greetingTimer = setTimeout(nextLine, 2000);
     }
 
     followButton.addEventListener('click', () => setLogFollowing(true));
@@ -400,7 +400,7 @@
       uiLog('Журнал подготовлен к загрузке.');
       const text = records.filter(record => !record.greeting).map(record => record.rawText !== undefined ? record.rawText : record.time + ' [' + levelLabels[record.level] + '] ' + record.message).join('\r\n') + '\r\n';
       const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
-      const link = document.createElement('a'); link.href = url; link.download = currentStamp().session;
+      const link = document.createElement('a'); link.href = url; link.download = 'newsbot-log.txt';
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
     $('log-filter').addEventListener('change', () => {
@@ -577,7 +577,7 @@
       requestPending = true; updateStatus(); setLogFollowing(true);
       try {
         await api('run', {method:'POST', body:'{}'});
-        uiLog('Запрос запуска принят. Ход обработки — в журнале.');
+        uiLog('Бот запущен вручную');
       } catch (error) { showError(error); }
       finally { requestPending = false; await refreshStatus(); }
     });
