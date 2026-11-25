@@ -69,7 +69,7 @@ Debug для сброса служебного состояния реализо
 ## Для AI
 
 Перед правкой:
-1. Прочитать `gpt_context/ARCHITECTURE.md` и `gpt_context/DECISIONS.md`; для WebUI также `webui/README.md` и раздел WebUI development корневого `AGENTS.md`.
+1. Прочитать `gpt_context/ARCHITECTURE.md` и `docs/decisions.md`; для WebUI также `webui/README.md` и раздел WebUI development корневого `AGENTS.md`.
 2. Найти реально затронутые файлы и usages.
 3. Если изменение затрагивает несколько модулей — сначала предложить план.
 4. Сохранять решение достаточно простым, чтобы владелец проекта мог его поддерживать.

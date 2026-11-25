@@ -14,13 +14,13 @@ Project context is maintained in `gpt_context/`:
 - root `README.md` — project overview.
 - `gpt_context/ARCHITECTURE.md` — module and component boundaries.
 - `gpt_context/CONTEXT.md` — current development context.
-- `gpt_context/DECISIONS.md` — durable architectural decisions.
+- `docs/decisions.md` — durable architectural decisions.
 - `webui/README.md` — current UI structure and behavior.
 
 ## Sources of truth
 
 - Current source code describes the actual implementation. Use the current target branch, not stale chat context.
-- Approved architectural decisions define mandatory project constraints. Consult `gpt_context/DECISIONS.md` before non-trivial changes.
+- Approved architectural decisions define mandatory project constraints. Consult `docs/decisions.md` before non-trivial changes.
 - Consult only the other documentation relevant to the task, using the document list above.
 - Inspect affected source files, interfaces and their usages before making changes. For integration tasks, inspect both Python and WebUI before proposing or changing interfaces.
 - If implementation conflicts with an approved architectural decision, report the discrepancy to the owner. Do not silently change either the implementation or the decision.
@@ -93,9 +93,9 @@ Review the diff for regressions, broken contracts, unnecessary complexity and du
 
 ## Architectural decisions
 
-When a task results in a significant architectural or design decision, proactively tell the user that it may be worth recording in `gpt_context/DECISIONS.md`.
+When a task results in a significant architectural or design decision, proactively tell the user that it may be worth recording in `docs/decisions.md`.
 
-Do not update `DECISIONS.md` automatically unless the user explicitly approves it.
+Do not update `docs/decisions.md` automatically unless the user explicitly approves it. ADR identifiers are permanent and must not be reused. Editorial corrections must preserve the substance of approved decisions.
 
 Examples include:
 
@@ -106,7 +106,7 @@ Examples include:
 - establishing a project-wide development or processing rule;
 - accepting an important architectural tradeoff.
 
-Do not suggest a `DECISIONS.md` entry for routine bug fixes, minor implementation details, formatting, or temporary experiments.
+Do not suggest a `docs/decisions.md` entry for routine bug fixes, minor implementation details, formatting, or temporary experiments.
 
 ## Important project invariants
 
