@@ -85,6 +85,17 @@ Before making a non-trivial change:
 6. For tasks involving `webui/`, also read `webui/AGENTS.md` and `webui/README.md` and inspect affected UI files.
 7. For integration tasks, inspect both the Python and WebUI sides before proposing interfaces or changing code.
 
+## Documentation policy
+
+- Documentation describes only the current, implemented state of the project.
+- Do not document planned features, unimplemented functionality, hypothetical architecture or future development stages as part of the project documentation.
+- Planned changes and development tasks belong in GitHub Issues.
+- Implementation history belongs in Git history and pull requests.
+- Each subject must have a single authoritative document. Use links instead of duplicating its contents.
+- When implementation changes, update the affected documentation in the same change.
+- Remove obsolete descriptions, instructions and references instead of accumulating historical amendments.
+- Do not claim successful testing, deployment or platform compatibility without verification.
+
 ## Development workflow
 
 For non-trivial changes use **PLAN -> PATCH -> REVIEW**.
