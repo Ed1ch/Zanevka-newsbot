@@ -65,7 +65,7 @@
     .identity-copy { min-width: 0; }
     .identity-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .identity-heading h1, .identity-heading .status-controls, .identity-heading .running-status { width: auto; }
-    .identity-description { margin: 0; color: #f6f5f5; opacity: .902; font: 11px/1.3 var(--mono); }
+    .identity-description { margin: 0; color: #f6f5f5; opacity: .48; font: 11px/1.3 var(--mono); }
     .status-image { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0 4px; border: 0; border-radius: 999px; background: #136030; color: #f6f5f5; font: 12px Consolas, monospace; white-space: nowrap; cursor: default; pointer-events: none; }
     .running-status[data-state="error"] .status-image { background: #383838; }
     .running-status[data-state="stopped"] .status-image { background: #a33520cc; }
