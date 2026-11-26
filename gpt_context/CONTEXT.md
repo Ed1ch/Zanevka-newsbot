@@ -21,9 +21,8 @@ zanevka newsbot обрабатывает общую партию EML с DOCX, и
 - Проверки: probe/check_logging.py и probe/check_webui_api.py, опциональный
   браузерный стенд serve_webui_fixture.py/check_webui_browser.py. Все рабочие
   сервисы подменены. Живые HTTPS/cron/IMAP/VK/WP и Windows/FreeBSD здесь не проверены.
-- Деплой: docs/operations/deployment.md; ручные API-команды: webui/API.md,
-  webui/README.md. Следующий UI-проход должен добавить контрол Debug и привести
-  статические подписи расписания/сброса к серверной семантике.
+- Деплой: docs/operations/deployment.md; HTTP API: docs/ui/api.md;
+  клиентский интерфейс: docs/ui/admin.md.
 
 ## Реализация партии в feature/batch-integrity-20261022
 
@@ -66,7 +65,7 @@ Debug для сброса служебного состояния реализо
 ## Для AI
 
 Перед правкой:
-1. Прочитать `docs/architecture/system.md`, при работе с конвейером — `docs/architecture/pipeline.md` и `docs/decisions.md`; для WebUI также `webui/README.md` и раздел WebUI development корневого `AGENTS.md`.
+1. Прочитать `docs/architecture/system.md`, при работе с конвейером — `docs/architecture/pipeline.md` и `docs/decisions.md`; для WebUI также `docs/ui/admin.md` и раздел WebUI development корневого `AGENTS.md`.
 2. Найти реально затронутые файлы и usages.
 3. Если изменение затрагивает несколько модулей — сначала предложить план.
 4. Сохранять решение достаточно простым, чтобы владелец проекта мог его поддерживать.

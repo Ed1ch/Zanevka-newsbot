@@ -172,17 +172,12 @@ SSE с курсором, контекстом блока и явной повт�
 
 - `webui/index.html` — разметка интерфейса с журналом, элементами управления и вкладками настроек.
 - `webui/index_files/` — JavaScript, CSS и SVG-ресурсы.
-- `webui/README.md` — описание функций и структуры WebUI.
+- `docs/ui/admin.md` — описание функций и структуры WebUI.
 - Корневой `AGENTS.md` — в том числе правила работы AI с интерфейсом.
 
-**Текущее состояние:** существующие контролы подключены к API; основной HTML/CSS
-и подписи сохранены. Новая отдельная страница login — единственное дополнение UI.
-Рабочие настройки читаются/сохраняются через config.py; localStorage — только тема.
+WebUI использует действующий HTTP API, отдельную страницу входа и выход из сессии. Рабочие настройки читаются/сохраняются через config.py; localStorage — только тема.
 
-Первый запуск, команды Windows/Unix, локальный HTTP, настройка HTTPS/префикса,
-Caddy, cron и эксплуатация RELEASE: **[deployment.md](docs/operations/deployment.md)**; ручные API-команды — [API.md](webui/API.md).
-HTTP-контракт: [webui/API.md](webui/API.md). Недостающие контролы logout/Debug
-и ограничения старых статических подписей: [webui/README.md](webui/README.md).
+Эксплуатация RELEASE: [deployment.md](docs/operations/deployment.md). HTTP-контракт и ручные API-команды: [api.md](docs/ui/api.md). Интерфейс и его ограничения: [admin.md](docs/ui/admin.md). Debug доступен только через API.
 
 Быстрый запуск после установки зависимостей и заполнения локального config.py:
 
@@ -210,7 +205,7 @@ GitHub — canonical repository проекта. Перед изменением 
 - [docs/architecture/pipeline.md](docs/architecture/pipeline.md) — конвейер обработки новостей.
 - `gpt_context/CONTEXT.md` — текущий этап разработки.
 - `docs/decisions.md` — устойчивые архитектурные решения.
-- `webui/README.md` — описание WebUI; правила его изменения — в корневом `AGENTS.md`.
+- `docs/ui/admin.md` — описание WebUI; правила его изменения — в корневом `AGENTS.md`.
 
 Источник истины для деталей реализации — актуальный код соответствующего компонента. Для ограничений и направления развития дополнительно учитывать архитектуру, решения и текущий контекст.
 

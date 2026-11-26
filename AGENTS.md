@@ -7,7 +7,7 @@ Zanevka Newsbot is one project with two components:
 - **Python Newsbot** — the root-level Python modules that process `.eml` news, documents, images and VK materials and publish to WordPress.
 - **WebUI** — the existing HTML/CSS/JavaScript interface in `webui/`, served by Flask/Waitress in `webui_server.py`. Authenticated API launches `prelaunch.py` as a separate process, edits allowlisted config literals and streams real journal lines through one shared SSE reader.
 
-Keep the batch pipeline independent of the API. Deployment and HTTP contracts are in `docs/operations/deployment.md` and `webui/API.md`; do not redesign the existing interface during backend integration.
+Keep the batch pipeline independent of the API. Deployment and HTTP contracts are in `docs/operations/deployment.md` and `docs/ui/api.md`; do not redesign the existing interface during backend integration.
 
 Project documentation:
 
@@ -18,7 +18,8 @@ Project documentation:
 - `docs/operations/trial-run.md` — test selection, environment responsibilities and acceptance.
 - `gpt_context/CONTEXT.md` — current development context.
 - `docs/decisions.md` — durable architectural decisions.
-- `webui/README.md` — current UI structure and behavior.
+- `docs/ui/admin.md` — current UI structure and behavior.
+- `docs/ui/api.md` — server architecture and HTTP/SSE contracts.
 
 ## Sources of truth
 
@@ -123,7 +124,7 @@ VK objects may occur inside nested `attachments`. Preserve recursive attachment 
 
 ## WebUI development
 
-- Consult `webui/README.md` and relevant architectural decisions and contracts. Inspect affected HTML, CSS and JavaScript together, including their dependencies.
+- Consult `docs/ui/admin.md` and relevant architectural decisions and contracts. Inspect affected HTML, CSS and JavaScript together, including their dependencies.
 - Preserve existing visual design, colors, dimensions, layout and behavior unless explicitly requested otherwise, including journal filters, zoom, scrolling, tabs, floating settings window, switches and themes.
 - Do not rewrite event handlers, styles or DOM structure for cosmetic refactoring.
 - Do not modify backend code for purely visual changes, or vice versa.
