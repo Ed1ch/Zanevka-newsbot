@@ -53,10 +53,7 @@ Debug для сброса служебного состояния реализо
 проекта. Каталог создаётся автоматически перед получением lock; runtime-файлы
 исключены из Git. Это правило относится к `.newsbot.disabled`, running и меткам пустых журналов.
 
-Для API-интеграции выполняются `python probe/check_logging.py` и
-`python probe/check_webui_api.py`; check_batch.py не менялся и не запускался.
-Проверено в Debian 13/Python 3.13; живые сервисы, Pandoc, Windows 10 и FreeBSD
-требуют отдельной проверки при деплое.
+Выбор проверок, команды и границы сред — [trial-run.md](../docs/operations/trial-run.md).
 
 ## Текущий подход к разработке
 

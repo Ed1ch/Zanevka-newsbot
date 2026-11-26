@@ -15,6 +15,7 @@ Project documentation:
 - `docs/architecture/system.md` — module and component boundaries.
 - `docs/architecture/pipeline.md` — batch processing and publication.
 - `docs/operations/deployment.md` — RELEASE deployment and maintenance.
+- `docs/operations/trial-run.md` — test selection, environment responsibilities and acceptance.
 - `gpt_context/CONTEXT.md` — current development context.
 - `docs/decisions.md` — durable architectural decisions.
 - `webui/README.md` — current UI structure and behavior.
@@ -73,7 +74,7 @@ Make the smallest change that solves the task. Do not perform unrelated refactor
 
 ### REVIEW
 
-Review the diff for regressions, broken contracts, unnecessary complexity and duplicated functionality. Run relevant tests or perform the available targeted checks.
+Review the diff for regressions, broken contracts, unnecessary complexity and duplicated functionality. Follow `docs/operations/trial-run.md`: run targeted checks needed for the change in Codex Cloud; reuse applicable CI results for the same SHA instead of duplicating the full regression suite. Without applicable CI, perform necessary checks in the available environment. Report blocked or unrun checks and their risks; do not weaken tests or claim success. Do not build dedicated development infrastructure for routine tasks.
 
 ## Development rules
 
@@ -158,10 +159,10 @@ GitHub is the canonical repository for source code and documentation.
 
 ## Environment
 
-- Development and testing are performed in Codex Cloud.
+- Development and targeted checks are performed in Codex Cloud; applicable CI handles independent regression checks.
 - GitHub is the canonical repository.
 - Ubuntu RELEASE (`mcpv3release`) is the deployment and operational environment.
 - No persistent local development environment is maintained.
-- Do not develop or modify application source code directly on RELEASE.
+- Do not develop or modify application source code directly on RELEASE. RELEASE is for deployment, operation and visual/operational acceptance only; do not run automated test suites or install diagnostic dependencies there.
 - Scheduled Newsbot runs are managed externally through cron.
 - Preserve cross-platform compatibility unless the owner explicitly changes the supported-platform policy. Avoid OS-specific assumptions in shared application logic; verify dependencies, Pandoc and filesystem behavior on each platform before claiming compatibility.
