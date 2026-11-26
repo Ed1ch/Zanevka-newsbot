@@ -176,7 +176,7 @@ retry, освобождение блокировки, закрытие файл�
 - `probe/` — вся тестовая и диагностическая обвязка Python Newsbot: тесты, проверочные скрипты и связанные с ними тестовые данные. Новую тестовую обвязку размещать здесь, а не в корне репозитория.
 - `downloaded_eml/` и `extracted_images/` — директории временных данных обработки.
 
-Подробные границы ответственности модулей описаны в `gpt_context/ARCHITECTURE.md`.
+Границы ответственности модулей описаны в [system.md](docs/architecture/system.md), алгоритм обработки — в [pipeline.md](docs/architecture/pipeline.md).
 
 ## WebUI
 
@@ -216,7 +216,8 @@ GitHub — canonical repository проекта. Перед изменением 
 
 - `AGENTS.md` — общие правила работы AI с репозиторием.
 - `README.md` — краткое описание проекта.
-- `gpt_context/ARCHITECTURE.md` — архитектура Python и WebUI, границы компонентов.
+- [docs/architecture/system.md](docs/architecture/system.md) — архитектура системы, границы компонентов.
+- [docs/architecture/pipeline.md](docs/architecture/pipeline.md) — конвейер обработки новостей.
 - `gpt_context/CONTEXT.md` — текущий этап разработки.
 - `docs/decisions.md` — устойчивые архитектурные решения.
 - `webui/README.md` — описание WebUI; правила его изменения — в корневом `AGENTS.md`.

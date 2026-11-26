@@ -9,10 +9,11 @@ Zanevka Newsbot is one project with two components:
 
 Keep the batch pipeline independent of the API. Deployment and HTTP contracts are in `webui/DEPLOYMENT.md` and `webui/API.md`; do not redesign the existing interface during backend integration.
 
-Project context is maintained in `gpt_context/`:
+Project documentation:
 
 - root `README.md` — project overview.
-- `gpt_context/ARCHITECTURE.md` — module and component boundaries.
+- `docs/architecture/system.md` — module and component boundaries.
+- `docs/architecture/pipeline.md` — batch processing and publication.
 - `gpt_context/CONTEXT.md` — current development context.
 - `docs/decisions.md` — durable architectural decisions.
 - `webui/README.md` — current UI structure and behavior.
