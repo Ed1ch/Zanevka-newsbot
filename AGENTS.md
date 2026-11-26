@@ -9,23 +9,13 @@ Zanevka Newsbot is one project with two components:
 
 Keep the batch pipeline independent of the API. Deployment and HTTP contracts are in `docs/operations/deployment.md` and `docs/ui/api.md`; do not redesign the existing interface during backend integration.
 
-Project documentation:
-
-- root `README.md` — project overview.
-- `docs/architecture/system.md` — module and component boundaries.
-- `docs/architecture/pipeline.md` — batch processing and publication.
-- `docs/operations/deployment.md` — RELEASE deployment and maintenance.
-- `docs/operations/trial-run.md` — test selection, environment responsibilities and acceptance.
-- `gpt_context/CONTEXT.md` — current development context.
-- `docs/decisions.md` — durable architectural decisions.
-- `docs/ui/admin.md` — current UI structure and behavior.
-- `docs/ui/api.md` — server architecture and HTTP/SSE contracts.
+Documentation map: [docs/README.md](docs/README.md). Use it to select the documents relevant to the task. Approved architectural decisions in [docs/decisions.md](docs/decisions.md) are mandatory constraints.
 
 ## Sources of truth
 
 - Current source code describes the actual implementation. Use the current target branch, not stale chat context.
 - Approved architectural decisions define mandatory project constraints. Consult `docs/decisions.md` before non-trivial changes.
-- Consult only the other documentation relevant to the task, using the document list above.
+- Consult only the other documentation relevant to the task, using the documentation map.
 - Inspect affected source files, interfaces and their usages before making changes. For integration tasks, inspect both Python and WebUI before proposing or changing interfaces.
 - If implementation conflicts with an approved architectural decision, report the discrepancy to the owner. Do not silently change either the implementation or the decision.
 
