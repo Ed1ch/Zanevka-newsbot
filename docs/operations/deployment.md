@@ -37,7 +37,7 @@ sudo -u newsbot -H sh -eu -c 'cd /opt/newsbot; umask 077; test -e config.py || c
 sudo -u newsbot -H /opt/newsbot/.venv/bin/python /opt/newsbot/webui_server.py init-admin
 ```
 
-Перед разрешением запуска заполнить config.py рабочими параметрами локально, проверить webui_server.local.json, создать unit и настроить HTTPS (ниже). Не заменять существующие конфиги примерами. init-admin интерактивно запрашивает логин и пароль (минимум 12 символов), создаёт хеш и случайный ключ; пароля по умолчанию нет. Для смены пароля использовать тот же интерпретатор и `/opt/newsbot/webui_server.py change-password` от newsbot.
+Перед разрешением запуска заполнить config.py рабочими параметрами локально, проверить webui_server.local.json, создать unit и настроить HTTPS (ниже). Не заменять существующие конфиги примерами. init-admin интерактивно запрашивает логин и пароль (минимум 5 символов), создаёт хеш и случайный ключ; пароля по умолчанию нет. Для смены пароля использовать тот же интерпретатор и `/opt/newsbot/webui_server.py change-password` от newsbot.
 
 ### Конфигурация и права
 
@@ -50,7 +50,9 @@ sudo -u newsbot -H /opt/newsbot/.venv/bin/python /opt/newsbot/webui_server.py in
 
 В новой установке права служебных каталогов могут быть строже; доступ нужен одной учётной записи ОС. Секреты, локальные конфиги, журналы, флаги и временные данные не коммитятся. Не удалять локальные данные через git clean -x/-X. Рабочий config.py использует отдельные присваивания литералов; API сохраняет только разрешённые поля. Ручные изменения применяются к следующему запуску. LOG_DIR задаётся локально; после его ручной смены требуется перезапуск WebUI.
 
-Несекретные параметры webui_server.local.json на RELEASE: host=127.0.0.1, port=8081, threads=12, prefix="", external_https=true, trusted_proxies=["127.0.0.1"], session_hours=8. Не заменять весь JSON этим перечнем — сохранить username, password_hash и session_key. Явный serve --local-http предназначен для локального loopback-стенда, не для эксплуатации.
+IMAP_OUTPUT_DIR и OUTPUT_DIR должны указывать на выделенные рабочие каталоги (на RELEASE — downloaded_eml/ и extracted_images/). Очистка конвейера удаляет все обычные файлы в них, не только EML или изображения. Не указывать каталог проекта, docs/, stable_backup/, временные каталоги резервирования, каталоги конфигурации, venv, другие данные или ссылки на такие каталоги. Текущий валидатор IMAP_OUTPUT_DIR не исключает все опасные пути; не считать успешное сохранение подтверждением безопасности пути.
+
+При первичной установке init-admin создаёт trusted_proxies=[]; перед запуском через Caddy обязательно задать trusted_proxies=["127.0.0.1"] в локальном JSON от newsbot. Несекретные параметры webui_server.local.json на RELEASE: host=127.0.0.1, port=8081, threads=12, prefix="", external_https=true, trusted_proxies=["127.0.0.1"], session_hours=8. Не заменять весь JSON этим перечнем — сохранить username, password_hash и session_key. Явный serve --local-http предназначен для локального loopback-стенда, не для эксплуатации.
 
 ## Systemd
 
@@ -121,41 +123,73 @@ https://10.10.5.82:8443 {
 
 ## Обновление
 
-Обновление только до согласованного полного SHA main. Не разрабатывать на RELEASE. До начала проверить отсутствие посторонних изменений tracked-файлов (`git status --short` от newsbot). Если изменены только документы, развёртывание не требуется.
+Обновление только до согласованного полного SHA main. Не разрабатывать на RELEASE. Если изменены только документы, развёртывание не требуется.
 
-1. Запомнить исходное состояние разрешения расписания. Через WebUI запретить плановые запуски или создать flags/.newsbot.disabled от newsbot; дождаться завершения текущего конвейера. На время обслуживания исключить ручные запуски. Остановить WebUI (`sudo systemctl stop newsbot-webui`), затем убедиться в простое по prelaunch.check_running() и доступности общего lock (команды ниже). Не убивать работающий процесс и не удалять lock-файл.
-2. Перезаписать единственную резервную копию двух локальных конфигов и SHA в stable_backup/ (не хранить историю копий). Если запись не удалась, обновление не продолжать.
-3. Получить main, проверить согласованный SHA и переключить рабочее дерево на него. Если requirements.txt изменился, обновить зависимости venv; при ошибках не продолжать запуск новой версии.
-4. Запустить WebUI. Проверить состояние newsbot-webui, caddy, cron, HTTPS без ошибки сертификата, вход, историю и статус простоя/расписания. Не запускать публикацию только ради проверки. Восстановить исходное разрешение расписания (удалить созданный флаг, только если раньше он отсутствовал), проверить состояние переключателя.
-5. Зафиксировать предыдущий/новый SHA и результаты непосредственной проверки. На этом обновление завершено: ждать очередного cron-запуска не требуется.
+1. Записать исходное разрешение расписания в отчёт обслуживания (его же использовать при откате). Запретить плановые запуски через WebUI или флаг flags/.newsbot.disabled от newsbot. Исключить ручные запуски на время обслуживания, дождаться завершения конвейера, остановить WebUI (`sudo systemctl stop newsbot-webui`). Не убивать работающий процесс и не удалять lock-файл.
+2. Под существующим общим lock проверить простой и чистоту tracked-файлов, получить main и проверить согласованный TARGET. Удерживать lock непрерывно до окончания резервного копирования, смены кода и установки зависимостей.
+3. Создать новый комплект двух конфигов и SHA в .stable_backup.new/, проверить копии и только затем заменить stable_backup/. Для замены временно переименовать прежний комплект в .stable_backup.previous/. После успешной замены удалить прежний комплект. В конце успешной операции остаётся ровно один stable_backup/; архивы по датам не ведутся.
+4. Переключить рабочее дерево на TARGET; при изменении requirements.txt обновить venv. После успешного выхода из команды lock освобождается. Запустить WebUI, проверить службы newsbot-webui, caddy, cron, HTTPS без ошибок сертификата, вход, историю и статус. Не запускать публикацию для проверки. Восстановить исходное разрешение расписания, проверить переключатель.
+5. Зафиксировать предыдущий/новый SHA и результаты непосредственной проверки. Ждать очередного cron-запуска не требуется.
 
-Команды проверки простоя, копирования и смены кода (выполнять по этапам, после проверки каждого):
+Перед выполнением задать TARGET в оболочке администратора. Проверить, что flags/ и flags/.main.lock не являются ссылками, флаг запрета установлен, WebUI остановлен. Команда ниже выполняется одним блоком; при любой ошибке не продолжать обновление и не включать расписание.
 
 ```sh
-sudo -u newsbot -H sh -c 'cd /opt/newsbot && .venv/bin/python -B -c "import prelaunch; print(prelaunch.check_running())"'
-sudo -u newsbot -H flock -n /opt/newsbot/flags/.main.lock true
-# Продолжать только при idle и успешном flock.
-sudo -u newsbot -H sh -eu -c '
-  cd /opt/newsbot
-  umask 077
-  install -d -m 700 stable_backup
-  install -m 600 config.py webui_server.local.json stable_backup/
-  git rev-parse HEAD > stable_backup/commit
-'
-# TARGET задан администратором: согласованный полный SHA.
-sudo -u newsbot -H git -C /opt/newsbot fetch origin main
-sudo -u newsbot -H git -C /opt/newsbot merge-base --is-ancestor "$TARGET" origin/main
-sudo -u newsbot -H git -C /opt/newsbot switch --detach "$TARGET"
-# При изменении requirements.txt:
-sudo -u newsbot -H /opt/newsbot/.venv/bin/python -m pip install -r /opt/newsbot/requirements.txt
+sudo -u newsbot -H flock -n /opt/newsbot/flags/.main.lock sh -eu -s -- "$TARGET" <<'SH'
+cd /opt/newsbot
+umask 077
+target=$1
+test -e flags/.newsbot.disabled || test -L flags/.newsbot.disabled || exit 1
+test "$(.venv/bin/python -B -c 'import prelaunch; print(prelaunch.check_running())')" = idle
+status=$(git status --porcelain --untracked-files=no)
+test -z "$status"
+git fetch origin main
+test "$(git rev-parse --verify "$target^{commit}")" = "$target"
+git merge-base --is-ancestor "$target" origin/main
+old=$(git rev-parse HEAD)
+changed=$(git diff --name-only "$old" "$target" -- requirements.txt)
+
+# Не затирать остатки прерванной операции.
+test ! -e .stable_backup.new
+test ! -L .stable_backup.new
+test ! -e .stable_backup.previous
+test ! -L .stable_backup.previous
+test ! -L stable_backup
+mkdir -m 700 .stable_backup.new
+install -m 600 config.py webui_server.local.json .stable_backup.new/
+printf '%s\n' "$old" > .stable_backup.new/commit
+cmp -s config.py .stable_backup.new/config.py
+cmp -s webui_server.local.json .stable_backup.new/webui_server.local.json
+test "$(cat .stable_backup.new/commit)" = "$old"
+if [ -e stable_backup ]; then
+    test -d stable_backup
+    mv -T -- stable_backup .stable_backup.previous
+fi
+if ! mv -T -- .stable_backup.new stable_backup; then
+    if [ -d .stable_backup.previous ]; then
+        mv -T -- .stable_backup.previous stable_backup
+    fi
+    exit 1
+fi
+if [ -d .stable_backup.previous ]; then
+    rm -r -- .stable_backup.previous
+fi
+
+git switch --detach "$target"
+if [ -n "$changed" ]; then
+    .venv/bin/python -m pip install -r requirements.txt
+fi
+SH
+# Только после успешного завершения блока:
 sudo systemctl start newsbot-webui
 ```
 
-Не удалять flags/, журналы, временные каталоги, локальные конфиги или stable_backup/ при смене кода. Не сбрасывать delayed.publish. Не выполнять force checkout/reset или git clean для устранения конфликтов. При неисправности оставить автоматические запуски выключенными до восстановления.
+При ошибке создания нового комплекта прежний не заменяется. При прерывании между переименованиями или удалением старого комплекта не начинать новый backup: под тем же lock проверить наличие и целостность config.py, webui_server.local.json и commit в stable_backup/, .stable_backup.previous/ и .stable_backup.new/. Если stable_backup/ отсутствует, восстановить прежний комплект из .stable_backup.previous/ при его наличии. Если новый комплект уже установлен и проверен, удалить временный предыдущий; неполный staging удалить только после подтверждения сохранности пригодной копии. Не коммитить временные каталоги. После успешного восстановления оставить только один пригодный комплект. Не перезаписывать backup текущей неисправной версией.
+
+Не удалять flags/, журналы, временные рабочие каталоги, локальные конфиги или stable_backup/ при смене кода. Не сбрасывать delayed.publish. Не выполнять force checkout/reset или git clean для устранения конфликтов. При неисправности оставить автоматические запуски выключенными до восстановления.
 
 ### Откат
 
-При неудачном обновлении выполнить согласованный откат в том же режиме обслуживания (запрет расписания, простой конвейера, остановленный WebUI). **Не перезаписывать stable_backup при откате.** Взять SHA из stable_backup/commit, проверить наличие коммита и переключить дерево через git switch --detach. Восстановить два конфига через install -m 600 от newsbot из stable_backup/; если менялись зависимости, привести venv к требованиям возвращаемой версии (при необходимости пересоздать только venv). Запустить WebUI, повторить непосредственную проверку и восстановить исходное разрешение расписания. Резервная копия не содержит точного снимка venv, почты, журналов или WordPress; откат кода не откатывает публикации.
+При неудачном обновлении выполнить согласованный откат в том же режиме обслуживания (запрет расписания, простой конвейера, остановленный WebUI). **Не перезаписывать stable_backup при откате.** Удерживать общий lock тем же способом (flock на весь блок команд от newsbot). Взять SHA из stable_backup/commit, проверить наличие коммита и переключить дерево через git switch --detach. Восстановить два конфига через install -m 600 от newsbot из stable_backup/; если менялись зависимости, привести venv к требованиям возвращаемой версии (при необходимости пересоздать только venv). После успешного освобождения lock запустить WebUI, повторить непосредственную проверку и восстановить исходное разрешение расписания из отчёта обслуживания. Резервная копия не содержит точного снимка venv, почты, журналов или WordPress; откат кода не откатывает публикации.
 
 ## Обслуживание и диагностика
 
@@ -177,6 +211,6 @@ sudo journalctl -u cron -n 30 --no-pager
 df -h /opt/newsbot
 ```
 
-Журналы конвейера в LOG_DIR (по умолчанию logs), ранние ошибки запуска — stderr терминала/cron или диагностические события WebUI. Настройки хранения: LOG_RETENTION_DAYS=30, LOG_MAX_TOTAL_MB=200 (МиБ), LOG_EMPTY_MIN_AGE_SECONDS=600 по умолчанию. Сам бот очищает архив в начале следующих запусков; не удалять активный журнал или lock. Резервная копия обновления — только один комплект stable_backup; не делать архивов venv или Git при каждом обновлении. При проблемах с публикацией сверить почту, WordPress и журнал; правила восстановления — [pipeline.md](../architecture/pipeline.md).
+Журналы конвейера в LOG_DIR (по умолчанию logs), ранние ошибки запуска — stderr терминала/cron или диагностические события WebUI. Настройки хранения: LOG_RETENTION_DAYS=30, LOG_MAX_TOTAL_MB=200 (МиБ), LOG_EMPTY_MIN_AGE_SECONDS=600 по умолчанию. Помеченные пустые журналы очищаются в начале следующих запусков; ограничения срока/объёма применяются также при закрытии журнала; не удалять активный журнал или lock. Резервная копия обновления — только один комплект stable_backup; не делать архивов venv или Git при каждом обновлении. При проблемах с публикацией сверить почту, WordPress и журнал; правила восстановления — [pipeline.md](../architecture/pipeline.md).
 
 Офлайн-тесты и приёмка описываются в [trial-run.md](trial-run.md); не запускать рабочий конвейер вместо диагностических тестов.

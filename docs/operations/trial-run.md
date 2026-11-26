@@ -63,6 +63,8 @@ for file in webui/index_files/*.js; do
     node --check "$file" || exit 1
 done
 git diff --check
+# Для закоммиченных изменений BASE — согласованный исходный SHA задачи:
+git diff --check "$BASE" HEAD
 ```
 
 Node.js нужен только для JS syntax, не является рабочей зависимостью. Для браузерных проверок при наличии Playwright и Chromium в диагностической среде:

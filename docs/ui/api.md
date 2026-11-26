@@ -42,7 +42,7 @@ JSON-тела; для мутаций указан обязательный на�
 | GET api/logs/history | — | `{files,lines,cursor,truncated}` |
 | GET api/events?cursor=… | — | SSE; Last-Event-ID приоритетнее cursor |
 
-Основные ошибки: 400 — неверный запрос/неподдерживаемое действие, 401 — нет сессии/неверный вход, 403 — CSRF/граница доступа, 409 — конфликт, 413 — размер запроса, 429 — ограничение входа, 500 — внутренняя ошибка/частичный reset, 503 — недоступность операции или неизвестное состояние.
+Основные ошибки: 400 — неверный запрос/неподдерживаемое действие или превышение размера тела (body_too_large), 401 — нет сессии/неверный вход, 403 — CSRF/граница доступа, 409 — конфликт, 429 — ограничение входа, 500 — внутренняя ошибка/частичный reset, 503 — недоступность операции или неизвестное состояние.
 
 ## Запуск и состояние
 
@@ -74,7 +74,7 @@ Settings разбирает config.py как UTF-8/BOM с отдельными �
 | Секреты | IMAP_PASSWORD, WP_APP_PASSWORD, VK_ACCESS_TOKEN |
 | Целые числа | IMAP_PORT, IMAP_TIMEOUT, IMAP_RETRY_COUNT, IMAP_RETRY_DELAY, WP_API_TIMEOUT, GALLERY_COLUMNS, VK_API_TIMEOUT |
 
-Числа — JSON integer, диапазоны определены INTEGER_FIELDS. Строки до 4096 символов без CR/LF/NUL; URL WordPress HTTP(S), без userinfo/query/fragment; POST_STATUS draft/publish/pending, GALLERY_SIZE thumbnail/medium/large/full, VK_API_VERSION числовая версия вида 5.199. IMAP_OUTPUT_DIR относительный, без родительского обхода; текущий валидатор исключает первые компоненты flags, webui, gpt_context, probe, .git и logs. DEMO_INTERVAL/DEMO_TIMEZONE и LOG_DIR не редактируются формой.
+Числа — JSON integer, диапазоны определены INTEGER_FIELDS. Строки до 4096 символов без CR/LF/NUL; URL WordPress HTTP(S), без userinfo/query/fragment; POST_STATUS draft/publish/pending, GALLERY_SIZE thumbnail/medium/large/full, VK_API_VERSION числовая версия вида 5.199. IMAP_OUTPUT_DIR относительный, без родительского обхода; текущий валидатор исключает первые компоненты flags, webui, gpt_context, probe, .git и logs. DEMO_INTERVAL/DEMO_TIMEZONE и LOG_DIR не редактируются формой. Валидатор не исключает все опасные каталоги; правила выбора выделенного каталога — [deployment.md](../operations/deployment.md).
 
 GET возвращает только несекретные values, булевы configured_secrets и revision (SHA-256 точных байтов). PUT принимает изменённые разрешённые значения и revision; пустые/пропущенные секреты сохраняются, *** отвергается. Неизменённые литералы и комментарии сохраняются. Проверка ревизии и повторная проверка файла перед атомарной заменой; конфликт 409, ошибка записи 503. Настройки действуют со следующего запуска.
 

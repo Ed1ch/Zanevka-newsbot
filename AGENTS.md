@@ -14,7 +14,7 @@ Documentation map: [docs/README.md](docs/README.md). Use it to select the docume
 ## Sources of truth
 
 - Current source code describes the actual implementation. Use the current target branch, not stale chat context.
-- Approved architectural decisions define mandatory project constraints. Consult `docs/decisions.md` before non-trivial changes.
+- Consult `docs/decisions.md` before non-trivial changes.
 - Consult only the other documentation relevant to the task, using the documentation map.
 - Inspect affected source files, interfaces and their usages before making changes. For integration tasks, inspect both Python and WebUI before proposing or changing interfaces.
 - If implementation conflicts with an approved architectural decision, report the discrepancy to the owner. Do not silently change either the implementation or the decision.
@@ -104,9 +104,9 @@ Do not suggest a `docs/decisions.md` entry for routine bug fixes, minor implemen
 
 ## Important project invariants
 
-A failure while processing one news item must **not terminate the entire processing loop**.
+An ordinary publication failure for one news item must **not terminate the entire processing loop**. A critical active journal write failure (`LogWriteError`) stops the pipeline as specified in ADR-007.
 
-Cleanup of the downloaded `.eml` and `extracted_images/` must happen even when processing fails.
+Attempt both working-file cleanups in finally even on processing failure (ADR-002); abrupt process termination can prevent cleanup.
 
 VK objects may occur inside nested `attachments`. Preserve recursive attachment handling when modifying VK processing.
 
@@ -151,7 +151,6 @@ GitHub is the canonical repository for source code and documentation.
 ## Environment
 
 - Development and targeted checks are performed in Codex Cloud; applicable CI handles independent regression checks.
-- GitHub is the canonical repository.
 - Ubuntu RELEASE (`mcpv3release`) is the deployment and operational environment.
 - No persistent local development environment is maintained.
 - Do not develop or modify application source code directly on RELEASE. RELEASE is for deployment, operation and visual/operational acceptance only; do not run automated test suites or install diagnostic dependencies there.
