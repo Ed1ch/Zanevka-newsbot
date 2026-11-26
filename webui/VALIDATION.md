@@ -111,4 +111,18 @@ detached-process, FreeBSD flock/cron/Pandoc, реальные IMAP/VK/WP и ACL,
 через выбранный Caddy/Apache/nginx, сертификаты/LAN-доступ, реальная cron-служба
 и задержка SSE через эксплуатационный прокси. Системные настройки и службы
 этим заданием автоматически не менялись. Недостающие UI-контролы и подписи
-перечислены в README.md; инструкции запуска/ручных API-команд — DEPLOYMENT.md.
+перечислены в README.md; инструкции развёртывания — [deployment.md](../docs/operations/deployment.md), ручных API-команд — [API.md](API.md).
+
+## Команды офлайн-проверок
+
+```sh
+python probe/check_logging.py
+python probe/check_webui_api.py
+python -m compileall -q prelaunch.py main.py log.py webui_server.py probe
+node --check webui/index_files/script.js
+```
+
+Проверки подменяют почту/VK/WP, используют временные каталоги и реальные отдельные процессы. Для конвейера также предусмотрен `python probe/check_batch.py`. Опциональная проверка браузера (Playwright/Chromium в отдельной
+диагностической среде): запустите `python probe/serve_webui_fixture.py --prefix
+/newsbot`, возьмите напечатанный временный root и передайте его
+`python probe/check_webui_browser.py --fixture-root ROOT`. Это только офлайн-стенд.

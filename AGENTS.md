@@ -7,13 +7,14 @@ Zanevka Newsbot is one project with two components:
 - **Python Newsbot** — the root-level Python modules that process `.eml` news, documents, images and VK materials and publish to WordPress.
 - **WebUI** — the existing HTML/CSS/JavaScript interface in `webui/`, served by Flask/Waitress in `webui_server.py`. Authenticated API launches `prelaunch.py` as a separate process, edits allowlisted config literals and streams real journal lines through one shared SSE reader.
 
-Keep the batch pipeline independent of the API. Deployment and HTTP contracts are in `webui/DEPLOYMENT.md` and `webui/API.md`; do not redesign the existing interface during backend integration.
+Keep the batch pipeline independent of the API. Deployment and HTTP contracts are in `docs/operations/deployment.md` and `webui/API.md`; do not redesign the existing interface during backend integration.
 
 Project documentation:
 
 - root `README.md` — project overview.
 - `docs/architecture/system.md` — module and component boundaries.
 - `docs/architecture/pipeline.md` — batch processing and publication.
+- `docs/operations/deployment.md` — RELEASE deployment and maintenance.
 - `gpt_context/CONTEXT.md` — current development context.
 - `docs/decisions.md` — durable architectural decisions.
 - `webui/README.md` — current UI structure and behavior.

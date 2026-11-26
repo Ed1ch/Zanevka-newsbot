@@ -14,7 +14,7 @@
 
 The batch pipeline is not imported by the API for execution. The child runs as `sys.executable -u prelaunch.py` with the project directory as cwd. The launcher owns the final process lock. Debug resets flags under that same lock, preserves .main.lock and may report partial failure; it does not stop the bot or modify mail or journals.
 
-GET api/logs/preview is deliberately unauthenticated and returns the same bounded LogHub snapshot as authenticated history, not a separate sanitized preview. HTTPS terminates at an external proxy; Waitress defaults to loopback:8081, explicit local HTTP is restricted to loopback, and the configured prefix is retained in upstream requests. See [deployment](DEPLOYMENT.md) for configuration and [system architecture](../docs/architecture/system.md) for component boundaries.
+GET api/logs/preview is deliberately unauthenticated and returns the same bounded LogHub snapshot as authenticated history, not a separate sanitized preview. HTTPS terminates at an external proxy; Waitress defaults to loopback:8081, explicit local HTTP is restricted to loopback, and the configured prefix is retained in upstream requests. See [deployment](../docs/operations/deployment.md) for configuration and [system architecture](../docs/architecture/system.md) for component boundaries.
 
 All paths below are relative to the configured application prefix, with one
 origin for HTML, API and SSE. JSON bodies; `X-CSRF-Token` for every mutation,
@@ -64,3 +64,60 @@ if needed. Other filesystem errors still reach the reader's error handler.
 Heartbeat comments every 10 seconds; authentication checked at least every
 second, including logout/password change/expiry. One reader polls every 0.5s;
 each connection owns only a bounded event queue, never its own file reader.
+
+## Operational details
+
+Sessions have a fixed lifetime (8 hours by default, configurable 1–24), HttpOnly, SameSite=Strict, Secure in HTTPS mode; restarting the API revokes sessions. Logout, password/key changes and expiry terminate SSE within approximately one second. Explicit loopback HTTP disables proxy trust and Secure cookies for that run. Forwarding is trusted only for configured immediate peers; one hop of X-Forwarded-For/Proto/Host/Port is applied, not X-Forwarded-Prefix. A configured prefix is preserved upstream; HTTPS mode rejects untrusted plain HTTP.
+
+The child uses a separate Unix session or Windows detached process; stdout is DEVNULL, stderr is inherited through a temporary regular flags/.api-stderr-* file, not a PIPE. Diagnostics are bounded to the first 64 KiB and 2000 characters per line with secret redaction; the watcher deletes its temporary file. Ordinary bot messages come only from journals. Remaining stderr files after API failure can be cleared by idle Debug.
+
+Settings accepts UTF-8/BOM, individual literal assignments and comments, not imports, computed values, duplicate/complex assignments or missing required fields. IMAP_OUTPUT_DIR is required to be relative without parent traversal; the validator rejects first components flags, webui, gpt_context, probe, .git and logs. Unmodified literals and comments are retained; blank secrets preserve values, *** is rejected. Config changes apply at the next launch. SHA-256 revision conflicts return 409. LOG_DIR is not edited by the form.
+
+History is limited to 10 files, 10,000 physical lines and 4 MiB, replay to 2048 events and client queue to 256. Lines over 64 KiB are bounded with diagnostics. The reader uses byte positions and accumulates incomplete UTF-8, without permanent file handles. Already displayed/cleared lines remain in the browser after resync.
+
+## Ручная проверка API в том же браузере
+
+Все URL относительные и сохраняют `/newsbot/`, если он настроен.
+Для ручного входа откройте страницу `/login` (или `/newsbot/login`), заполните
+её существующие поля, затем выполните в DevTools (значения не печатаются):
+
+```js
+{
+  const base = new URL('api/', location.href);
+  const state = await (await fetch(new URL('session', base))).json();
+  const form = document.getElementById('login-form');
+  const response = await fetch(new URL('login', base), {
+    method: 'POST',
+    headers: {'Content-Type':'application/json', 'X-CSRF-Token':state.csrf_token},
+    body: JSON.stringify({username:form.elements.username.value, password:form.elements.password.value})
+  });
+  form.elements.password.value = '';
+  if (response.ok) location.assign(new URL('./', location.href));
+}
+```
+
+Обычно достаточно штатной кнопки «Войти». После входа ручной Debug:
+
+```js
+{
+  const base = new URL('api/', location.href);
+  const state = await (await fetch(new URL('session', base))).json();
+  const response = await fetch(new URL('debug/reset-flags', base), {
+    method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf_token}, body:'{}'
+  });
+  console.log(response.status, await response.json());
+}
+```
+
+Только при простое Debug держит общую `.main.lock` и удаляет **всё** остальное
+содержимое `flags/`, включая `.newsbot.disabled`, свободный `.newsbot.running`,
+`delayed.publish`, метки пустых журналов и другие служебные записи. Каталог
+и существующий inode `.main.lock` сохраняются. При работе/старте/занятом lock —
+409 без удаления, при неизвестном состоянии — 503. Ссылки удаляются как записи,
+без обхода их целей. Частичный сбой возвращает 500 и списки deleted/errors.
+Удаление disabled разрешает будущий cron. Debug не останавливает процесс,
+не удаляет журналы, не меняет IMAP и не восстанавливает партию.
+
+Для logout замените в этом фрагменте `debug/reset-flags` на `logout`.
+GET `api/status`, `api/settings`, `api/logs/history` доступны после входа;
+пароли/ключи/сессионные cookie не помещайте в URL или команды терминала.

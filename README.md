@@ -190,7 +190,7 @@ retry, освобождение блокировки, закрытие файл�
 Рабочие настройки читаются/сохраняются через config.py; localStorage — только тема.
 
 Первый запуск, команды Windows/Unix, локальный HTTP, настройка HTTPS/префикса,
-Caddy/Apache, cron и ручные API-команды: **[webui/DEPLOYMENT.md](webui/DEPLOYMENT.md)**.
+Caddy, cron и эксплуатация RELEASE: **[deployment.md](docs/operations/deployment.md)**; ручные API-команды — [API.md](webui/API.md).
 HTTP-контракт: [webui/API.md](webui/API.md). Недостающие контролы logout/Debug
 и ограничения старых статических подписей: [webui/README.md](webui/README.md).
 

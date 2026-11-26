@@ -21,7 +21,7 @@ zanevka newsbot обрабатывает общую партию EML с DOCX, и
 - Проверки: probe/check_logging.py и probe/check_webui_api.py, опциональный
   браузерный стенд serve_webui_fixture.py/check_webui_browser.py. Все рабочие
   сервисы подменены. Живые HTTPS/cron/IMAP/VK/WP и Windows/FreeBSD здесь не проверены.
-- Деплой, ручные API-команды и ограничения текущих подписей: webui/DEPLOYMENT.md,
+- Деплой: docs/operations/deployment.md; ручные API-команды: webui/API.md,
   webui/README.md. Следующий UI-проход должен добавить контрол Debug и привести
   статические подписи расписания/сброса к серверной семантике.
 
